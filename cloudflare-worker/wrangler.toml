@@ -1,0 +1,12 @@
+name = "michigan-dining-scraper"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[triggers]
+crons = ["0 5,11,17 * * *"]  # Run at 5am, 11am, 5pm UTC (1am, 7am, 1pm Eastern)
+
+[vars]
+SUPABASE_URL = "https://gtkzwyhqxtubgmlvovmn.supabase.co"
+
+# Set SUPABASE_SERVICE_ROLE_KEY as a secret:
+# npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY

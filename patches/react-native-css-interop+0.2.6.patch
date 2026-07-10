@@ -1,0 +1,53 @@
+diff --git a/node_modules/react-native-css-interop/.cache/android.js b/node_modules/react-native-css-interop/.cache/android.js
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-css-interop/.cache/ios.js b/node_modules/react-native-css-interop/.cache/ios.js
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-css-interop/.cache/macos.js b/node_modules/react-native-css-interop/.cache/macos.js
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-css-interop/.cache/native.js b/node_modules/react-native-css-interop/.cache/native.js
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-css-interop/.cache/windows.js b/node_modules/react-native-css-interop/.cache/windows.js
+new file mode 100644
+index 0000000..e69de29
+diff --git a/node_modules/react-native-css-interop/babel.js b/node_modules/react-native-css-interop/babel.js
+index d84e52b..d2021bf 100644
+--- a/node_modules/react-native-css-interop/babel.js
++++ b/node_modules/react-native-css-interop/babel.js
+@@ -1,16 +1,20 @@
+ module.exports = function () {
+-  return {
+-    plugins: [
+-      require("./dist/babel-plugin").default,
+-      [
+-        "@babel/plugin-transform-react-jsx",
+-        {
+-          runtime: "automatic",
+-          importSource: "react-native-css-interop",
+-        },
+-      ],
+-      // Use this plugin in reanimated 4 and later
+-      "react-native-worklets/plugin",
++  const plugins = [
++    require("./dist/babel-plugin").default,
++    [
++      "@babel/plugin-transform-react-jsx",
++      {
++        runtime: "automatic",
++        importSource: "react-native-css-interop",
++      },
+     ],
+-  };
++  ];
++
++  // Only include worklets plugin if react-native-worklets is available (Reanimated v4+)
++  try {
++    require.resolve("react-native-worklets/plugin");
++    plugins.push("react-native-worklets/plugin");
++  } catch (_) {}
++
++  return { plugins };
+ };

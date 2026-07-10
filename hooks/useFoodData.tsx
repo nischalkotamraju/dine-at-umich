@@ -1,0 +1,201 @@
+import { router } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ALLERGEN_EXCEPTIONS, NUTRITION_ORDER } from '~/data/AllergenInfo';
+import { type FoodItem, getFavoriteItem, getFoodItem } from '~/services/database/database';
+import type { Favorite } from '~/services/database/schema';
+import { useDatabase } from './useDatabase';
+
+// Helper function to format nutrition keys
+const formatNutritionKey = (key: string) =>
+  key
+    .split('_')
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(' ');
+
+export function useFoodData(
+  location: string | string[],
+  menu: string | string[],
+  category: string | string[],
+  food: string | string[],
+  isFavorite?: boolean,
+  date?: string | string[],
+) {
+  const db = useDatabase();
+
+  const [foodItem, setFoodItem] = useState<FoodItem | null>(null);
+  const [notFound, setNotFound] = useState(false);
+
+  // Use refs to track if this is the first render
+  const isFirstRender = useRef(true);
+
+  // Add refs to track previous values
+  const prevFood = useRef<string>('');
+  const prevLocation = useRef<string>('');
+  const prevIsFavorite = useRef<boolean | undefined>(undefined);
+
+  useEffect(() => {
+    const fetchFoodItem = async () => {
+      if (!location || !menu || !category || !food) {
+        router.back();
+        return;
+      }
+
+      const locString = Array.isArray(location) ? location[0] : location;
+      const menuString = Array.isArray(menu) ? menu[0] : menu;
+      const categoryString = Array.isArray(category) ? category[0] : category;
+      const foodString = Array.isArray(food) ? food[0] : food;
+      const dateString = Array.isArray(date) ? date[0] : date;
+
+      try {
+        let item: FoodItem | null;
+
+        if (isFavorite) {
+          // Fetch from favorites table if isFavorite is true
+          const favoriteItem = getFavoriteItem(db, foodString);
+          if (!favoriteItem) {
+            console.warn('⚠️ Favorite item lookup returned nothing:', { foodString });
+            setNotFound(true);
+            return;
+          }
+          item = convertFavoriteItemToFoodItem(favoriteItem);
+        } else {
+          // Fetch from regular food items table
+          item = await getFoodItem(db, locString, menuString, categoryString, foodString, dateString);
+        }
+
+        if (!item) {
+          // This previously called router.back() silently, which made a genuine
+          // lookup failure (e.g. no menu row for this exact location/menu/category/
+          // date/name combo) look identical to "nothing happened" when tapping an
+          // item — indistinguishable from the app just being unresponsive. Surface
+          // it instead so it's visible on screen and in the logs.
+          console.warn('⚠️ getFoodItem() found no matching row for:', {
+            locString,
+            menuString,
+            categoryString,
+            foodString,
+            dateString,
+          });
+          setNotFound(true);
+          return;
+        }
+
+        setFoodItem(item);
+      } catch (error) {
+        console.error('❌ Error fetching food item:', error);
+        setNotFound(true);
+      }
+    };
+
+    // Only fetch on first render or when parameters change
+    if (
+      isFirstRender.current ||
+      (Array.isArray(food) ? food[0] : food) !== prevFood.current ||
+      (Array.isArray(location) ? location[0] : location) !== prevLocation.current ||
+      isFavorite !== prevIsFavorite.current
+    ) {
+      fetchFoodItem();
+      isFirstRender.current = false;
+    }
+
+    // Store current values for comparison
+    prevFood.current = Array.isArray(food) ? food[0] : food;
+    prevLocation.current = Array.isArray(location) ? location[0] : location;
+    prevIsFavorite.current = isFavorite;
+  }, [location, menu, category, food, isFavorite, db]);
+
+  // Process nutrition data
+  const nutritionData = useMemo(() => {
+    if (!foodItem?.nutrition) return [];
+
+    return Object.entries(foodItem.nutrition)
+      .map(([key, value]) => ({
+        key: formatNutritionKey(key),
+        value,
+      }))
+      .filter(({ key, value }) => key !== 'Ingredients' && key !== 'Id' && value !== null && value !== undefined)
+      .sort((a, b) => {
+        const ai = NUTRITION_ORDER.indexOf(a.key);
+        const bi = NUTRITION_ORDER.indexOf(b.key);
+        if (ai === -1 && bi === -1) return 0;
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      });
+  }, [foodItem]);
+
+  // Process allergen data
+  const allergenData = useMemo(() => {
+    const allergenEntries = foodItem?.allergens ? Object.entries(foodItem.allergens) : [];
+    const hasAllergens = allergenEntries.some(([, value]) => value);
+
+    const allergenList = allergenEntries
+      .filter(([key]) => !ALLERGEN_EXCEPTIONS.has(key) && key !== 'id')
+      .filter(([, value]) => value)
+      .map(([key]) => {
+        return key
+          .split('_')
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+          .join(' ');
+      });
+
+    const dietaryList = allergenEntries
+      .filter(([key]) => ALLERGEN_EXCEPTIONS.has(key) && key !== 'id')
+      .filter(([, value]) => value)
+      .map(([key]) => key.charAt(0).toUpperCase() + key.slice(1).toLowerCase());
+
+    return { hasAllergens, allergenList, dietaryList };
+  }, [foodItem]);
+
+  return {
+    foodItem,
+    notFound,
+    nutritionData,
+    ...allergenData,
+  };
+}
+
+const convertFavoriteItemToFoodItem = (favoriteItem: Favorite): FoodItem => {
+  return {
+    name: favoriteItem.name,
+    link: favoriteItem.link,
+    allergens: {
+      id: 0,
+      beef: favoriteItem.beef,
+      egg: favoriteItem.egg,
+      fish: favoriteItem.fish,
+      peanuts: favoriteItem.peanuts,
+      pork: favoriteItem.pork,
+      shellfish: favoriteItem.shellfish,
+      soy: favoriteItem.soy,
+      tree_nuts: favoriteItem.tree_nuts,
+      wheat: favoriteItem.wheat,
+      sesame_seeds: favoriteItem.sesame_seeds,
+      halal: favoriteItem.halal,
+      vegan: favoriteItem.vegan,
+      vegetarian: favoriteItem.vegetarian,
+      milk: favoriteItem.milk,
+    },
+    nutrition: {
+      id: 0,
+      serving_size: favoriteItem.serving_size,
+      calories: favoriteItem.calories,
+      protein: favoriteItem.protein,
+      total_fat: favoriteItem.total_fat,
+      total_carbohydrates: favoriteItem.total_carbohydrates,
+      dietary_fiber: favoriteItem.dietary_fiber,
+      total_sugars: favoriteItem.total_sugars,
+      saturated_fat: favoriteItem.saturated_fat,
+      calcium: favoriteItem.calcium,
+      iron: favoriteItem.iron,
+      potassium: favoriteItem.potassium,
+      sodium: favoriteItem.sodium,
+      cholesterol: favoriteItem.cholesterol,
+      vitamin_a: favoriteItem.vitamin_a,
+      vitamin_c: favoriteItem.vitamin_c,
+      vitamin_d: favoriteItem.vitamin_d,
+      ingredients: favoriteItem.ingredients,
+      trans_fat: favoriteItem.trans_fat,
+    },
+  } as FoodItem;
+};

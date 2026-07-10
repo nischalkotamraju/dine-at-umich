@@ -1,0 +1,9 @@
+{
+  "name": "live-activity",
+  "version": "1.0.0",
+  "description": "Local Expo module bridging Live Activities and widget shared data for Dine @ Michigan",
+  "main": "index.ts",
+  "author": "Dine @ Michigan",
+  "license": "UNLICENSED",
+  "homepage": "https://github.com/nk101/michigan-dining"
+}

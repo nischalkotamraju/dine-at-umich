@@ -1,0 +1,13 @@
+{
+  "name": "michigan-dining-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "curl https://localhost:8787"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

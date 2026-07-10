@@ -1,0 +1,41 @@
+name: Scrape Dining Menus
+
+on:
+  schedule:
+    # Runs at 1am, 7am, 1pm, 7pm Eastern (UTC-4 in summer)
+    - cron: '0 5,11,17,23 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Playwright and dependencies
+        run: |
+          mkdir -p /tmp/scraper
+          cp scripts/scrape-menus.mjs scripts/scrape-netnutrition.mjs /tmp/scraper/
+          cd /tmp/scraper && npm init -y && npm install playwright
+          npx --prefix /tmp/scraper playwright install chromium --with-deps
+
+      - name: Scrape all dining halls (6 dates)
+        env:
+          SUPABASE_URL: https://gtkzwyhqxtubgmlvovmn.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node /tmp/scraper/scrape-menus.mjs
+
+      # Runs after every menu scrape (same schedule) since scrape-menus.mjs
+      # deletes/recreates food_item + nutrition rows each time, which wipes
+      # any previously-enriched ingredients/allergen flags. Without this
+      # running on the same cadence, ingredients silently go stale/missing
+      # for all current data within one scrape cycle.
+      - name: Enrich ingredients + extra allergens from NetNutrition
+        env:
+          SUPABASE_URL: https://gtkzwyhqxtubgmlvovmn.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node /tmp/scraper/scrape-netnutrition.mjs
