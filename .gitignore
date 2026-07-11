@@ -26,3 +26,8 @@ android
 .metro-health-check*
 .env.development
 .env.production
+
+# proprietary icon assets - kept locally / in EAS builds via .easignore,
+# excluded from the public repo
+assets/allergen-icons/
+assets/onboarding/icon.webp

@@ -1,0 +1,21 @@
+node_modules/
+.expo/
+dist/
+npm-debug.*
+*.orig.*
+web-build/
+
+ios
+android
+
+# macOS
+.DS_Store
+
+# Temporary files created by Metro to check the health of the file watcher
+.metro-health-check*
+
+# Note: unlike .gitignore, this file intentionally does NOT exclude
+# assets/allergen-icons/ or assets/onboarding/icon.webp - EAS Build needs
+# these present in the uploaded archive even though they're kept out of the
+# public GitHub repo. When .easignore exists, EAS ignores .gitignore
+# entirely for upload purposes, so this file must be kept in sync manually.
