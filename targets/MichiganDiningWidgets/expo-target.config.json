@@ -1,0 +1,16 @@
+{
+  "type": "widget",
+  "name": "MichiganDiningWidgets",
+  "deploymentTarget": "17.0",
+  "frameworks": [
+    "SwiftUI",
+    "WidgetKit"
+  ],
+  "colors": {
+    "$accent": {
+      "color": "#00274C",
+      "darkColor": "#FFCB05"
+    }
+  },
+  "entitlements": {}
+}

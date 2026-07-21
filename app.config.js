@@ -44,6 +44,11 @@ export default {
         },
       ],
       'expo-localization',
+      './plugins/withFmtConstevalFix.cjs',
+      // Generates the MichiganDiningWidgets extension (home screen widget)
+      // from targets/MichiganDiningWidgets on every prebuild, so it's never
+      // lost to a manual `ios/` edit again.
+      '@bacons/apple-targets',
     ],
     experiments: {
       typedRoutes: true,
@@ -55,7 +60,7 @@ export default {
 
     assetBundlePatterns: ['**/*'],
     ios: {
-      supportsTablet: true,
+      supportsTablet: false,
       icon: {
         dark: './assets/icons/ios-dark.png',
         light: './assets/icons/ios-light.png',
@@ -104,15 +109,14 @@ export default {
         origin: false,
       },
       eas: {
-        projectId: '005ee5ea-5ec3-4d96-af00-5d6203694b74',
+        projectId: 'a7854532-37d6-4b1c-bd4a-930c22826aad',
       },
     },
-    owner: 'nk101',
     runtimeVersion: {
       policy: 'appVersion',
     },
     updates: {
-      url: 'https://u.expo.dev/005ee5ea-5ec3-4d96-af00-5d6203694b74',
+      url: 'https://u.expo.dev/a7854532-37d6-4b1c-bd4a-930c22826aad',
     },
   },
 };

@@ -7,8 +7,12 @@ type LiveActivityNativeModule = {
 
 export type FavoriteLocationStatus = {
   name: string;
-  closesAtISO: string | null;
   isOpen: boolean;
+  // Unix seconds of the next open/close transition today: the closing time if
+  // currently open, the opening time if currently closed, or null if there's
+  // no further transition today (closed for the rest of the day). Lets the
+  // widget show "CLOSES IN 2h" / "OPENS IN 30m" / "CLOSED".
+  transitionEpoch: number | null;
   // Location type name (e.g. "Dining Hall", "Café", "Market") — lets the
   // home screen widget show the same per-type icon as the in-app location
   // cards (see getLocationIcon in app/_components/LocationItem.tsx).
@@ -21,7 +25,14 @@ export type FavoriteLocationStatus = {
 // locations happen to be favorited.
 export type FavoriteFoodAvailability = {
   name: string;
-  servingLocations: { name: string; isOpen: boolean }[];
+  // Menu category (e.g. "Beverages", "Hot Cereal") so the widget can show the
+  // same per-category food icon as the app (see getCategoryIcon in
+  // components/FoodComponent.tsx).
+  category: string | null;
+  // transitionEpoch mirrors FavoriteLocationStatus: it lets the widget derive
+  // each serving location's open/closed state at render time rather than
+  // trusting the isOpen snapshot from whenever the app last ran.
+  servingLocations: { name: string; isOpen: boolean; transitionEpoch: number | null }[];
 };
 
 let nativeModule: LiveActivityNativeModule | null = null;
