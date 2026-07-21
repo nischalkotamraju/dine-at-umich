@@ -31,3 +31,7 @@ android
 # excluded from the public repo
 assets/allergen-icons/
 assets/onboarding/icon.webp
+
+# local scraper/dev logs and icon backups
+error.log
+*.png.bak
