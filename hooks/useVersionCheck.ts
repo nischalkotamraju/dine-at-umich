@@ -7,7 +7,7 @@ import { getAppInformation } from '~/services/database/database';
 import { useDatabase } from './useDatabase';
 
 const APP_STORE_URL = Platform.select({
-  ios: 'https://apps.apple.com/us/app/michigan-dining/id6743042002',
+  ios: 'https://apps.apple.com/us/app/michigan-dining/id6789715778',
   android: 'https://play.google.com/store/apps/details?id=com.michigandining.app',
 });
 

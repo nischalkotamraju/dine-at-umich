@@ -497,6 +497,60 @@ export type Database = {
         };
         Relationships: [];
       };
+      device_location_favorites: {
+        Row: {
+          created_at: string | null;
+          device_id: string;
+          location_name: string;
+        };
+        Insert: {
+          created_at?: string | null;
+          device_id: string;
+          location_name: string;
+        };
+        Update: {
+          created_at?: string | null;
+          device_id?: string;
+          location_name?: string;
+        };
+        Relationships: [];
+      };
+      device_food_favorites: {
+        Row: {
+          created_at: string | null;
+          device_id: string;
+          food_name: string;
+        };
+        Insert: {
+          created_at?: string | null;
+          device_id: string;
+          food_name: string;
+        };
+        Update: {
+          created_at?: string | null;
+          device_id?: string;
+          food_name?: string;
+        };
+        Relationships: [];
+      };
+      device_alert_log: {
+        Row: {
+          alert_key: string;
+          device_id: string;
+          sent_at: string | null;
+        };
+        Insert: {
+          alert_key: string;
+          device_id: string;
+          sent_at?: string | null;
+        };
+        Update: {
+          alert_key?: string;
+          device_id?: string;
+          sent_at?: string | null;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;

@@ -1,5 +1,6 @@
 import { type SQL, eq, sql } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
+import { getOrCreateDeviceId } from '~/services/device/deviceId';
 import { getTodayInCentralTime } from '~/utils/date';
 import { supabase } from '~/utils/supabase';
 import * as schema from './schema';
@@ -847,6 +848,7 @@ export const toggleFavorites = async (
       .where(eq(schema.favorites.name, foodItem.name as string))
       .execute();
 
+    syncFoodFavoriteToSupabase(foodItem.name as string, 'delete');
     return false;
   }
 
@@ -920,8 +922,33 @@ export const toggleFavorites = async (
     })
     .execute();
 
+  syncFoodFavoriteToSupabase(foodItem.name as string, 'insert');
   return true;
 };
+
+/**
+ * Fire-and-forget sync of a favorited/unfavorited food item's name to the
+ * device_food_favorites table in Supabase, so favorite-alerts-dispatch (the
+ * server-side cron job) knows which foods this device wants alerts for.
+ * Only the name is synced — matching matches purely on food name, same as
+ * the removed client-side favoriteFoodAlerts.ts used to. Never throws: local
+ * favoriting must never fail or block on a network/Supabase issue.
+ */
+function syncFoodFavoriteToSupabase(foodName: string, action: 'insert' | 'delete') {
+  const deviceId = getOrCreateDeviceId();
+  const query =
+    action === 'insert'
+      ? supabase.from('device_food_favorites').upsert({ device_id: deviceId, food_name: foodName })
+      : supabase
+          .from('device_food_favorites')
+          .delete()
+          .eq('device_id', deviceId)
+          .eq('food_name', foodName);
+
+  query.then(({ error }) => {
+    if (error) console.error('❌ Error syncing food favorite to Supabase:', error);
+  });
+}
 
 /**
  * Retrieves all favorited dining locations stored in the local database.
@@ -971,6 +998,7 @@ export const toggleLocationFavorite = async (
       .where(eq(schema.location_favorites.location_name, locationName))
       .execute();
 
+    syncLocationFavoriteToSupabase(locationName, 'delete');
     return false;
   }
 
@@ -982,8 +1010,34 @@ export const toggleLocationFavorite = async (
     })
     .execute();
 
+  syncLocationFavoriteToSupabase(locationName, 'insert');
   return true;
 };
+
+/**
+ * Fire-and-forget sync of a favorited/unfavorited location's name to the
+ * device_location_favorites table in Supabase, so favorite-alerts-dispatch
+ * (the server-side cron job) knows which locations this device wants
+ * closing-soon/opening-now alerts for. Never throws: local favoriting must
+ * never fail or block on a network/Supabase issue.
+ */
+function syncLocationFavoriteToSupabase(locationName: string, action: 'insert' | 'delete') {
+  const deviceId = getOrCreateDeviceId();
+  const query =
+    action === 'insert'
+      ? supabase
+          .from('device_location_favorites')
+          .upsert({ device_id: deviceId, location_name: locationName })
+      : supabase
+          .from('device_location_favorites')
+          .delete()
+          .eq('device_id', deviceId)
+          .eq('location_name', locationName);
+
+  query.then(({ error }) => {
+    if (error) console.error('❌ Error syncing location favorite to Supabase:', error);
+  });
+}
 
 /**
  * Retrieves detailed information about a specific location.

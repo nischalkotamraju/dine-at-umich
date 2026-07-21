@@ -2,7 +2,6 @@ import { eq } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import * as Network from 'expo-network';
 import { insertDataIntoSQLiteDB } from '~/services/database/database';
-import { checkFavoriteFoodAppearances } from '~/services/notifications/favoriteFoodAlerts';
 import { useDataSyncStore } from '~/store/useDataSyncStore';
 import * as schema from '../services/database/schema';
 
@@ -61,13 +60,6 @@ export const fetchMenuData = async (
         // Update the last sync time after successful sync
         syncStore.setLastSupabaseQueryTime(Date.now());
         console.log('✅ Successfully synced with Supabase and updated sync timestamp');
-
-        // Fresh menu data just landed — this is the only point where today's
-        // menu contents can actually change, so it's the right time to check
-        // whether any favorited food showed up somewhere on campus.
-        checkFavoriteFoodAppearances(drizzleDb).catch((error) =>
-          console.error('❌ Error checking favorite food appearances:', error),
-        );
       } catch (error) {
         console.warn('Failed to sync with remote database, using cached data:', error);
         // Continue to return cached data even if sync fails

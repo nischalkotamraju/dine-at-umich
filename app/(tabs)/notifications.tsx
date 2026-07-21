@@ -1,0 +1,295 @@
+import { FlashList } from '@shopify/flash-list';
+import { eq, sql } from 'drizzle-orm';
+import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { router, Stack, useFocusEffect } from 'expo-router';
+import { Bell, ChefHat, ExternalLink, MapPin, Star } from 'lucide-react-native';
+import { useCallback, useMemo } from 'react';
+import { Text, TouchableOpacity, View } from 'react-native';
+
+import { Container } from '~/components/Container';
+import { useDatabase } from '~/hooks/useDatabase';
+import * as schema from '~/services/database/schema';
+import { useNotificationsStore } from '~/store/useNotificationsStore';
+import { useSettingsStore } from '~/store/useSettingsStore';
+import { getAccent } from '~/utils/colors';
+import { cn } from '~/utils/utils';
+
+export interface Notification {
+  id: string;
+  title: string | null;
+  body: string | null;
+  redirect_url: string | null;
+  type: string | null;
+  sent_at: string | null;
+  type_name: string;
+  // UI state
+  isRead: boolean;
+}
+
+const NotificationItem = ({
+  notification,
+  onPress,
+}: {
+  notification: Notification;
+  onPress: (notification: Notification) => void;
+}) => {
+  const isDarkMode = useSettingsStore((state) => state.isDarkMode);
+
+  // Refer to the Supabase notification_types table for the type names
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'Food Alert':
+        return <ChefHat size={20} color={getAccent(isDarkMode)} />;
+      case 'Location Update':
+        return <MapPin size={20} color={getAccent(isDarkMode)} />;
+      case 'Special Alert':
+        return <Star size={20} color={getAccent(isDarkMode)} />;
+      case 'System Announcement':
+        return <Bell size={20} color={getAccent(isDarkMode)} />;
+      default:
+        return <Bell size={20} color={getAccent(isDarkMode)} />;
+    }
+  };
+
+  const formatTimestamp = (timestamp: string) => {
+    const now = new Date();
+    const diff = now.getTime() - new Date(timestamp).getTime();
+    const minutes = Math.floor(diff / (1000 * 60));
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+    if (minutes < 60) {
+      return `${minutes}m ago`;
+    } else if (hours < 24) {
+      return `${hours}h ago`;
+    } else {
+      return `${days}d ago`;
+    }
+  };
+
+  return (
+    <TouchableOpacity
+      activeOpacity={notification.redirect_url ? 0.5 : 1}
+      onPress={() => onPress(notification)}
+      className={cn(
+        'mx-6 rounded-lg p-4',
+        notification.isRead
+          ? isDarkMode
+            ? 'bg-neutral-800'
+            : 'bg-neutral-50'
+          : isDarkMode
+            ? 'bg-orange-500/5'
+            : 'bg-orange-50',
+      )}
+    >
+      <View className="flex-row items-start gap-x-3">
+        <View className="mt-1">{getNotificationIcon(notification.type_name)}</View>
+
+        <View className="flex-1">
+          <View className="flex-row items-center justify-between">
+            <Text className={cn('font-bold text-base', isDarkMode ? 'text-white' : 'text-black')}>
+              {notification.title}
+            </Text>
+            <View className="flex-row items-center gap-x-2">
+              {notification.redirect_url && (
+                <ExternalLink size={14} color={getAccent(isDarkMode)} />
+              )}
+              <Text className={cn('text-xs', isDarkMode ? 'text-gray-400' : 'text-gray-600')}>
+                {notification.sent_at && formatTimestamp(notification.sent_at)}
+              </Text>
+            </View>
+          </View>
+
+          <Text
+            className={cn(
+              'mt-1 text-sm leading-relaxed',
+              isDarkMode ? 'text-gray-300' : 'text-gray-700',
+            )}
+          >
+            {notification.body}
+          </Text>
+
+          {!notification.isRead && (
+            <View className="mt-2 flex-row">
+              <View
+                className="rounded-full px-2 py-1"
+                style={{ backgroundColor: getAccent(isDarkMode) }}
+              >
+                <Text className="font-bold text-white text-xs">NEW</Text>
+              </View>
+            </View>
+          )}
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+const Notifications = () => {
+  const isDarkMode = useSettingsStore((state) => state.isDarkMode);
+  const db = useDatabase();
+  const { lastVisited, setLastVisited } = useNotificationsStore();
+
+  // Track when user leaves the notifications page
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        // This cleanup function runs when the screen loses focus
+        const now = Date.now();
+        setLastVisited(now);
+      };
+    }, [setLastVisited]),
+  );
+
+  // Use live query to get notifications in real-time, sorted by sent_at DESC
+  const { data: dbNotifications = [] } = useLiveQuery(
+    db
+      ?.select({
+        id: schema.notifications.id,
+        title: schema.notifications.title,
+        body: schema.notifications.body,
+        redirect_url: schema.notifications.redirect_url,
+        type: schema.notifications.type,
+        sent_at: schema.notifications.sent_at,
+        type_name: schema.notification_types.name,
+      })
+      .from(schema.notifications)
+      .leftJoin(
+        schema.notification_types,
+        eq(schema.notifications.type, schema.notification_types.id),
+      )
+      .orderBy(sql`datetime(${schema.notifications.sent_at}) DESC`),
+  );
+
+  // Convert database notifications to UI format with isRead state
+  const notifications: Notification[] = useMemo(() => {
+    return (dbNotifications || []).map((notification) => {
+      const isRead =
+        lastVisited !== null &&
+        notification.sent_at !== null &&
+        new Date(notification.sent_at).getTime() <= lastVisited;
+
+      return {
+        id: notification.id,
+        title: notification.title,
+        body: notification.body,
+        redirect_url: notification.redirect_url,
+        type: notification.type,
+        sent_at: notification.sent_at,
+        type_name: notification.type_name || 'system_announcement',
+        isRead,
+      };
+    });
+  }, [dbNotifications, lastVisited]);
+
+  const handleNotificationPress = (notification: Notification) => {
+    if (notification.redirect_url) {
+      // biome-ignore lint/suspicious/noExplicitAny: The redirect url is valid.
+      router.push(notification.redirect_url as any);
+    }
+  };
+
+  const handleReadAll = () => {
+    const now = Date.now();
+    setLastVisited(now);
+  };
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
+
+  return (
+    <View style={{ flex: 1, backgroundColor: isDarkMode ? '#171717' : '#fff' }}>
+      <Stack.Screen
+        options={{
+          title: 'Notifications',
+          headerShown: false,
+        }}
+      />
+      <Container className="mx-0" disableBottomPadding>
+        <FlashList
+          extraData={isDarkMode}
+          ListHeaderComponent={
+            <View className="mt-6 flex gap-y-5 px-6 mb-4">
+              <View className="flex-row items-center justify-between">
+                <View className="flex-row items-center gap-x-2">
+                  <Text
+                    className={cn(
+                      'font-extrabold text-3xl',
+                      isDarkMode ? 'text-white' : 'text-black',
+                    )}
+                  >
+                    Notifications
+                  </Text>
+                </View>
+                {unreadCount > 0 && (
+                  <View className="flex-row items-center gap-x-3">
+                    <TouchableOpacity
+                      onPress={handleReadAll}
+                      className="rounded-lg px-3 py-1"
+                      style={{ backgroundColor: getAccent(isDarkMode) }}
+                    >
+                      <Text className="font-semibold text-white text-xs">Read All</Text>
+                    </TouchableOpacity>
+                    <View
+                      className="rounded-full px-3 py-1"
+                      style={{ backgroundColor: getAccent(isDarkMode) }}
+                    >
+                      <Text className="font-bold text-sm text-white">{unreadCount}</Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            </View>
+          }
+          contentContainerStyle={{ paddingBottom: 24 }}
+          estimatedItemSize={120}
+          data={notifications}
+          renderItem={({ item }) => (
+            <NotificationItem notification={item} onPress={handleNotificationPress} />
+          )}
+          ItemSeparatorComponent={() => <View className="h-3" />}
+          ListEmptyComponent={
+            <View style={{ marginTop: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}>
+              <View
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 18,
+                  backgroundColor: getAccent(isDarkMode),
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 20,
+                }}
+              >
+                <Bell size={30} color={isDarkMode ? '#000' : '#fff'} strokeWidth={2} />
+              </View>
+              <Text
+                style={{
+                  fontFamily: 'RobotoMono_700Bold',
+                  fontSize: 16,
+                  color: isDarkMode ? '#fff' : '#111',
+                  letterSpacing: 1,
+                  textAlign: 'center',
+                }}
+              >
+                NO NOTIFICATIONS YET
+              </Text>
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: isDarkMode ? '#9CA3AF' : '#6B7280',
+                  marginTop: 8,
+                  textAlign: 'center',
+                  maxWidth: 280,
+                }}
+              >
+                We'll notify you about your favorite foods and dining location updates.
+              </Text>
+            </View>
+          }
+        />
+      </Container>
+    </View>
+  );
+};
+
+export default Notifications;

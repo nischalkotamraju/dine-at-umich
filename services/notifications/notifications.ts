@@ -6,22 +6,22 @@ import { router } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
 import { useDatabase } from '~/hooks/useDatabase';
+import * as schema from '~/services/database/schema';
 import { getOrCreateDeviceId } from '~/services/device/deviceId';
-import { scheduleClosingSoonNotifications } from '~/services/notifications/closingSoonNotifications';
+import { refreshFavoriteLocationsWidgetData } from '~/services/widget/refreshWidgetData';
 import { usePushNotificationsStore } from '~/store/usePushNotificationsStore';
 import { useWidgetPreferencesStore } from '~/store/useWidgetPreferencesStore';
-import * as schema from '~/services/database/schema';
 import { supabase } from '~/utils/supabase';
 import { insertNotification } from '../database/database';
 
-// Categories scheduled purely on-device (favoriteFoodAlerts.ts,
-// closingSoonNotifications.ts) rather than sent from the server. If the OS
-// ever delivers one of these after the user has revoked notification
-// permission (some platforms don't reliably drop already-pending local
-// notifications on revocation), it should still be kept out of the in-app
-// Notifications list — otherwise a "leaked" alert the user tried to turn off
-// would persist there even after the banner disappears.
-const LOCAL_ONLY_CATEGORIES = ['favorite-food-appearance', 'closing-soon', 'opening-now'];
+// closing-soon/opening-now/favorite-food-appearance used to be scheduled
+// purely on-device and were filtered out of the in-app Notifications list
+// via this set. They're now computed server-side (favorite-alerts-dispatch
+// Edge Function, based on device_location_favorites/device_food_favorites)
+// and delivered as real pushes, so they should persist like any other
+// notification — this set is kept empty rather than removed outright in
+// case a future local-only category is ever reintroduced.
+const LOCAL_ONLY_CATEGORIES: string[] = [];
 
 async function shouldPersistNotification(category: unknown): Promise<boolean> {
   if (typeof category !== 'string' || !LOCAL_ONLY_CATEGORIES.includes(category)) return true;
@@ -178,10 +178,11 @@ export function PushNotificationsInitializer() {
           }
         }
 
-        // Navigate to the notification's redirect url, if it has one — there's
-        // no in-app notifications list to fall back to otherwise.
+        // If there is a redirect url, navigate to it. If not, navigate to the notifications screen.
         if (notification.request.content.data?.redirect_url) {
           router.push(notification.request.content.data.redirect_url);
+        } else {
+          router.push('/notifications');
         }
       },
     );
@@ -197,27 +198,30 @@ export function PushNotificationsInitializer() {
 }
 
 /**
- * Keeps "closing soon" local reminders for favorited dining locations in
- * sync: re-schedules them whenever the favorited-locations list changes, and
+ * Keeps the home screen widget's favorite-location status in sync:
+ * re-computes it whenever the favorited-locations/foods list changes, and
  * again whenever the app is foregrounded (so hours computed for "today"
  * don't go stale across a day rollover while the app was backgrounded).
+ *
+ * Closing-soon/opening-now/favorite-food alerts themselves are delivered
+ * server-side (see services/notifications/PushNotificationsInitializer's
+ * doc comment above) — this initializer only refreshes the widget display.
  */
-export function ClosingSoonNotificationsInitializer() {
+export function WidgetRefreshInitializer() {
   const db = useDatabase();
   const { data: locationFavorites } = useLiveQuery(db.select().from(schema.location_favorites));
-  const { data: foodFavorites } = useLiveQuery(db.select().from(schema.favorites));
   const favoriteNames = locationFavorites.map((f) => f.location_name).join(',');
-  // Also re-run whenever favorited *foods* change — the widget payload
-  // includes favorite-food availability, so favoriting/unfavoriting a food
-  // needs to refresh it immediately rather than waiting for a location
-  // favorite to change or the app to be foregrounded again.
+  // The widget's Food section is driven by favorited dishes, so watch those
+  // too — otherwise favoriting/unfavoriting a food wouldn't update the widget
+  // until the next app foreground.
+  const { data: foodFavorites } = useLiveQuery(db.select().from(schema.favorites));
   const favoriteFoodNames = foodFavorites.map((f) => f.name).join(',');
   const { homeScreenWidgetEnabled } = useWidgetPreferencesStore();
   const dbRef = useRef(db);
   dbRef.current = db;
 
   useEffect(() => {
-    scheduleClosingSoonNotifications(dbRef.current);
+    refreshFavoriteLocationsWidgetData(dbRef.current);
     // Also re-run whenever the user flips the widget preference in Settings,
     // so turning it off immediately clears it instead of waiting for a
     // favorite change or the next app foreground.
@@ -226,7 +230,7 @@ export function ClosingSoonNotificationsInitializer() {
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
-        scheduleClosingSoonNotifications(dbRef.current);
+        refreshFavoriteLocationsWidgetData(dbRef.current);
       }
     });
 
