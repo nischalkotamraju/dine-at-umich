@@ -39,7 +39,7 @@ if (!SUPABASE_KEY) {
 // Location -> NetNutrition unit map
 // ---------------------------------------------------------------------------
 // "hall" units require Daily Menu -> date -> meal navigation and are scraped
-// once per (date, meal) combo found in our own -2..+2 day window.
+// once per (date, meal) combo found in our own today..+2 day window.
 // "cafe" units show a single flat, non-dated "current" menu as soon as the
 // unit is selected — there's no way to view a specific past/future date, so
 // these are only matched against TODAY's rows in our own DB.
@@ -120,9 +120,28 @@ async function getLocationMap() {
   return map;
 }
 
+// Loosened key for matching our menu-site names against NetNutrition's, which
+// disagree on punctuation and accents for the same dish ("Crammin' Caramel
+// Latte" vs "Crammin Caramel Latte", "Café" vs "Cafe", "Mac & Cheese" vs
+// "Mac and Cheese"). Strips diacritics, folds "&" to "and", reduces every
+// other non-alphanumeric run to a single space, and lowercases. Only used as a
+// fallback after an exact match, so it can't override a precise hit.
+function normalizeName(name) {
+  return (name ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+const EMPTY_INDEX = { exact: new Map(), normalized: new Map() };
+
 // Fetches every food_item row (with its nutrition_id/allergens_id) that the
-// main scraper already created for this location+date, keyed by lowercased
-// trimmed name for matching against NetNutrition's item names.
+// main scraper already created for this location+date, indexed both by exact
+// lowercased name and by the loosened key above.
 //
 // The same dish name (e.g. "Oatmeal", "Cilantro", a recurring station like
 // "24 Carrots") frequently recurs across multiple meals (breakfast AND lunch)
@@ -137,14 +156,14 @@ async function getLocationMap() {
 async function getExistingFoodItems(locationId, date, mealName) {
   let menuQuery = `/menu?location_id=eq.${locationId}&date=eq.${date}&select=id,name`;
   const menus = await sbFetch('GET', menuQuery);
-  if (!menus?.length) return new Map();
+  if (!menus?.length) return EMPTY_INDEX;
 
   const scopedMenus = mealName ? menus.filter((m) => m.name === mealName) : menus;
-  if (!scopedMenus.length) return new Map();
+  if (!scopedMenus.length) return EMPTY_INDEX;
 
   const menuIds = scopedMenus.map((m) => m.id).join(',');
   const cats = await sbFetch('GET', `/menu_category?menu_id=in.(${menuIds})&select=id`);
-  if (!cats?.length) return new Map();
+  if (!cats?.length) return EMPTY_INDEX;
 
   const catIds = cats.map((c) => c.id).join(',');
   const items = await sbFetch(
@@ -152,11 +171,16 @@ async function getExistingFoodItems(locationId, date, mealName) {
     `/food_item?menu_category_id=in.(${catIds})&select=id,name,nutrition_id,allergens_id`,
   );
 
-  const map = new Map();
+  const exact = new Map();
+  const normalized = new Map();
   for (const item of items ?? []) {
-    map.set(item.name.trim().toLowerCase(), item);
+    exact.set(item.name.trim().toLowerCase(), item);
+    // First writer wins, so a normalized collision between two distinct dishes
+    // can't silently reassign an item that already matched exactly.
+    const norm = normalizeName(item.name);
+    if (!normalized.has(norm)) normalized.set(norm, item);
   }
-  return map;
+  return { exact, normalized };
 }
 
 async function applyEnrichment(foodItem, ingredients, allergenFlags) {
@@ -339,12 +363,15 @@ async function scrapeCurrentMenuView(page) {
 // ---------------------------------------------------------------------------
 
 async function enrichLocationDate(locationId, date, scrapedItems, stats, mealName) {
-  const existing = await getExistingFoodItems(locationId, date, mealName);
+  const { exact, normalized } = await getExistingFoodItems(locationId, date, mealName);
+  const unmatchedNames = [];
   for (const scraped of scrapedItems) {
     const key = scraped.name.trim().toLowerCase();
-    const foodItem = existing.get(key);
+    // Exact first; fall back to the punctuation/accent-insensitive key.
+    const foodItem = exact.get(key) ?? normalized.get(normalizeName(scraped.name));
     if (!foodItem) {
       stats.unmatched++;
+      unmatchedNames.push(scraped.name);
       continue;
     }
     if (!scraped.ingredients && Object.values(scraped.allergens).every((v) => v === null)) {
@@ -359,6 +386,17 @@ async function enrichLocationDate(locationId, date, scrapedItems, stats, mealNam
       stats.failed = (stats.failed ?? 0) + 1;
       console.log(`    "${scraped.name}": FAILED ${err.message}`);
     }
+  }
+
+  // Surface what NetNutrition served that we couldn't line up with our own
+  // rows. Previously this was only a counter, so a location sitting at 0%
+  // enrichment gave no clue whether the unit failed to scrape or every name
+  // simply missed — these samples make that difference obvious in the logs.
+  if (unmatchedNames.length > 0) {
+    const sample = unmatchedNames.slice(0, 8).map((n) => `"${n}"`).join(', ');
+    console.log(
+      `    unmatched (${unmatchedNames.length}): ${sample}${unmatchedNames.length > 8 ? ', …' : ''}`,
+    );
   }
 }
 
@@ -382,8 +420,14 @@ function getDateWindow() {
     return [{ iso, isToday: iso === todayIso, dateObj: new Date(`${iso}T12:00:00Z`) }];
   }
 
+  // Today forward only, matching scrape-menus.mjs. NetNutrition has no
+  // past-date view (halls can't navigate to them; cafés have no date picker at
+  // all), so attempting yesterday/-2 only ever produced failed navigations and
+  // zero enrichment — measurable in the DB, where every past date had 0 items
+  // with ingredients while today/future had hundreds. Skipping them removes
+  // that wasted browser work without losing any data.
   const dates = [];
-  for (let offset = -2; offset <= 2; offset++) {
+  for (let offset = 0; offset <= 2; offset++) {
     const d = new Date(base);
     d.setUTCDate(d.getUTCDate() + offset);
     dates.push({ iso: d.toISOString().split('T')[0], isToday: offset === 0, dateObj: d });

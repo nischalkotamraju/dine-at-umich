@@ -393,8 +393,17 @@ if (process.argv[2]) {
   const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
   const base = new Date(Date.UTC(+map.year, +map.month - 1, +map.day, 12));
 
+  // Today forward only — deliberately NOT backwards. scrapeLocationDate()
+  // DELETEs a location+date's menu and re-inserts it from scratch, which also
+  // throws away the ingredients and detailed allergen flags that
+  // scrape-netnutrition.mjs added. That enrichment can only ever be applied to
+  // today and future dates (NetNutrition exposes no past-date view for halls,
+  // and no date navigation at all for cafés), so re-scraping a past date
+  // permanently strips data that can never be rebuilt. Past menus don't change
+  // anyway, so leaving them alone preserves the enrichment they picked up while
+  // they were current.
   dates = [];
-  for (let offset = -2; offset <= 2; offset++) {
+  for (let offset = 0; offset <= 2; offset++) {
     const d = new Date(base);
     d.setUTCDate(d.getUTCDate() + offset);
     dates.push(d.toISOString().split('T')[0]);

@@ -23,7 +23,7 @@ jobs:
           cd /tmp/scraper && npm init -y && npm install playwright
           npx --prefix /tmp/scraper playwright install chromium --with-deps
 
-      - name: Scrape all dining halls (6 dates)
+      - name: Scrape all dining halls (today + next 2 days)
         env:
           SUPABASE_URL: https://gtkzwyhqxtubgmlvovmn.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
