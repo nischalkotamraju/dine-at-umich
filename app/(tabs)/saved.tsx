@@ -1,6 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { FlashList } from '@shopify/flash-list';
-import { and, eq, inArray } from 'drizzle-orm';
+import {
+  buildAvailabilityTimeline,
+  formatHHMM,
+  getDishesServingLocations,
+} from '~/utils/foodAvailability';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { router, useFocusEffect } from 'expo-router';
@@ -192,32 +196,7 @@ const SavedTab = () => {
 
   const { data: foodLocations } = useQuery({
     queryKey: ['savedFoodLocations', foodNames, refreshKey],
-    queryFn: async () => {
-      const today = getTodayInCentralTime();
-      const rows = await db
-        .select({
-          food_name: schema.food_item.name,
-          location_name: schema.location.name,
-        })
-        .from(schema.food_item)
-        .innerJoin(
-          schema.menu_category,
-          eq(schema.food_item.menu_category_id, schema.menu_category.id),
-        )
-        .innerJoin(schema.menu, eq(schema.menu_category.menu_id, schema.menu.id))
-        .innerJoin(schema.location, eq(schema.menu.location_id, schema.location.id))
-        .where(and(eq(schema.menu.date, today), inArray(schema.food_item.name, foodNames)));
-
-      const map: Record<string, string[]> = {};
-      for (const row of rows) {
-        if (!row.food_name || !row.location_name) continue;
-        if (!map[row.food_name]) map[row.food_name] = [];
-        if (!map[row.food_name].includes(row.location_name)) {
-          map[row.food_name].push(row.location_name);
-        }
-      }
-      return map;
-    },
+    queryFn: () => getDishesServingLocations(db, foodNames),
     enabled: foodNames.length > 0,
   });
 
@@ -244,7 +223,7 @@ const SavedTab = () => {
     <View style={{ flex: 1, backgroundColor: bg, paddingTop: insets.top }}>
       <FlashList
         estimatedItemSize={72}
-        extraData={isDarkMode}
+        extraData={[isDarkMode, currentTime, foodLocations]}
         data={activeTab === 'foods' ? sortedFavorites : sortedLocationFavorites}
         keyExtractor={(item) =>
           'menu_name' in item ? `${item.name}-${item.location_name}` : item.id
@@ -319,9 +298,6 @@ const SavedTab = () => {
                 })
               }
               style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 12,
                 borderRadius: 14,
                 paddingHorizontal: 14,
                 paddingVertical: 13,
@@ -329,45 +305,75 @@ const SavedTab = () => {
                 backgroundColor: foodCardBg,
               }}
             >
-              <View
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 10,
-                  backgroundColor: getAccentTint(isDarkMode),
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                {getCategoryIcon(item.category_name ?? '', isDarkMode)}
-              </View>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={{ fontSize: 14, fontFamily: 'RobotoMono_500Medium', color: textColor, letterSpacing: -0.3 }} numberOfLines={1}>
+              {/* Header row: icon, name, favorite/chevron */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 10,
+                    backgroundColor: getAccentTint(isDarkMode),
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  {getCategoryIcon(item.category_name ?? '', isDarkMode)}
+                </View>
+                <Text style={{ flex: 1, fontSize: 14, fontFamily: 'RobotoMono_500Medium', color: textColor, letterSpacing: -0.3 }} numberOfLines={1}>
                   {item.name}
                 </Text>
-                <Text style={{ fontSize: 11, fontFamily: 'RobotoMono_400Regular', color: subColor }}>
-                  {foodLocations?.[item.name]?.length
-                    ? `Today at ${foodLocations[item.name].join(', ')}`
-                    : 'Not on any menu today'}
-                </Text>
+                <TouchableOpacity
+                  onPress={async () => {
+                    await toggleFavorites(
+                      db,
+                      { name: item.name, nutrition: undefined, allergens: undefined, link: '' },
+                      item.location_name,
+                      item.menu_name,
+                      item.category_name,
+                    );
+                  }}
+                  hitSlop={10}
+                  style={{ padding: 4, flexShrink: 0 }}
+                >
+                  <Heart size={19} color={getAccent(isDarkMode)} fill={getAccent(isDarkMode)} strokeWidth={1.8} />
+                </TouchableOpacity>
+                <ChevronRight size={16} color={isDarkMode ? '#4B5563' : '#D1D5DB'} />
               </View>
-              <TouchableOpacity
-                onPress={async () => {
-                  await toggleFavorites(
-                    db,
-                    { name: item.name, nutrition: undefined, allergens: undefined, link: '' },
-                    item.location_name,
-                    item.menu_name,
-                    item.category_name,
+
+              {/* Where to find it today — open windows and the locations
+                  serving the dish during each; the current window is green. */}
+              {(() => {
+                const timeline = buildAvailabilityTimeline(foodLocations?.[item.name] ?? []);
+                if (timeline.length === 0) {
+                  return (
+                    <Text style={{ fontSize: 11, fontFamily: 'RobotoMono_400Regular', color: subColor, marginTop: 8, marginLeft: 56 }}>
+                      Not on any menu today
+                    </Text>
                   );
-                }}
-                hitSlop={10}
-                style={{ padding: 4, flexShrink: 0 }}
-              >
-                <Heart size={19} color={getAccent(isDarkMode)} fill={getAccent(isDarkMode)} strokeWidth={1.8} />
-              </TouchableOpacity>
-              <ChevronRight size={16} color={isDarkMode ? '#4B5563' : '#D1D5DB'} />
+                }
+                return (
+                  <View style={{ marginTop: 10, marginLeft: 56, gap: 7 }}>
+                    {timeline.map((slot) => (
+                      <View key={`${slot.open}-${slot.close}`} style={{ gap: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontSize: 11, fontFamily: 'RobotoMono_700Bold', color: slot.isNow ? '#22C55E' : textColor, letterSpacing: 0.2 }}>
+                            {`${formatHHMM(slot.open)} – ${formatHHMM(slot.close)}`}
+                          </Text>
+                          {slot.isNow && (
+                            <Text style={{ fontSize: 9, fontFamily: 'RobotoMono_700Bold', color: '#22C55E', letterSpacing: 0.5 }}>
+                              NOW
+                            </Text>
+                          )}
+                        </View>
+                        <Text style={{ fontSize: 11, fontFamily: 'RobotoMono_400Regular', color: subColor }}>
+                          {slot.locationNames.join(', ')}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                );
+              })()}
             </Pressable>
           ) : (
             <LocationFavoriteCard item={item} currentTime={currentTime} db={db} />
