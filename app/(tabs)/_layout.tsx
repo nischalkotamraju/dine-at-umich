@@ -75,6 +75,9 @@ export default function Layout() {
         }}
         listeners={{ tabPress: handleTabPress }}
       />
+
+      {/* Reachable via notification taps, but hidden from the tab bar */}
+      <Tabs.Screen name="notifications" options={{ href: null }} />
     </Tabs>
   );
 }

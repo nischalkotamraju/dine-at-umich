@@ -25,7 +25,7 @@ const HomeTopBar = () => {
       <Image className="size-12" source={icon} />
 
       <View className="flex flex-row gap-x-5">
-        <Link href="https://michigandining.userjot.com/" asChild>
+        <Link href="https://dinemichigan.userjot.com/" asChild>
           <TouchableOpacity>
             <MessageSquare
               size={20}

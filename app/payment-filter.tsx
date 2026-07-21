@@ -30,7 +30,7 @@ export default function PaymentFilterModal() {
   return (
     <View style={{ flex: 1, backgroundColor: bg }}>
       {/* Title */}
-      <View style={{ paddingHorizontal: PADDING, paddingTop: 28, paddingBottom: 20, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+      <View style={{ paddingHorizontal: PADDING, paddingTop: 24, paddingBottom: 16, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <View>
           <Text style={{ fontSize: 22, fontWeight: '700', color: isDarkMode ? '#fff' : '#000' }}>
             Filter by Payment

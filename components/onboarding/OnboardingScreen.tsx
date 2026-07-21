@@ -17,22 +17,12 @@ import { useSettingsStore } from '~/store/useSettingsStore';
 import { COLORS, getAccent } from '~/utils/colors';
 import { cn } from '~/utils/utils';
 import { Container } from '../Container';
-import { ProgressIndicator } from './ProgressIndicator';
-import CompleteScreen from './screens/CompleteScreen';
-import FavoritesFeatureScreen from './screens/FavoritesFeatureScreen';
-import MapFeatureScreen from './screens/MapFeatureScreen';
-import MenusFeatureScreen from './screens/MenusFeatureScreen';
-import PermissionsScreen from './screens/PermissionsScreen';
 import WelcomeScreen from './screens/WelcomeScreen';
 
-const ONBOARDING_SCREENS = [
-  ONBOARDING_STEPS.WELCOME,
-  ONBOARDING_STEPS.FEATURES_MENUS,
-  ONBOARDING_STEPS.FEATURES_MAP,
-  ONBOARDING_STEPS.FEATURES_FAVORITES,
-  ONBOARDING_STEPS.PERMISSIONS,
-  ONBOARDING_STEPS.COMPLETE,
-];
+// Permissions are requested natively by the OS when the app actually needs
+// them (e.g. opening the map, enabling notifications), and can be re-enabled
+// anytime from Settings — so onboarding is just a single welcome screen.
+const ONBOARDING_SCREENS = [ONBOARDING_STEPS.WELCOME];
 
 interface OnboardingScreenProps {
   isOnboardingComplete: boolean;
@@ -54,10 +44,6 @@ const OnboardingScreen = ({ isOnboardingComplete, isPreview, onClose }: Onboardi
   const currentStepShared = useSharedValue(0);
   const isScrolling = useSharedValue(false);
   const { currentStep, setCurrentStep, completeOnboarding } = useOnboardingStore();
-  const [permissionStatus, setPermissionStatus] = React.useState<{
-    location: string;
-    notifications: string;
-  } | null>(null);
   const [hasTrackedStart, setHasTrackedStart] = React.useState(false);
 
   // Track onboarding start only once
@@ -126,8 +112,6 @@ const OnboardingScreen = ({ isOnboardingComplete, isPreview, onClose }: Onboardi
     }
 
     analytics.capture('onboarding_completed', {
-      location_permission: permissionStatus?.location || 'undetermined',
-      notifications_permission: permissionStatus?.notifications || 'undetermined',
       onboarding_version: '1.1',
     });
 
@@ -138,25 +122,6 @@ const OnboardingScreen = ({ isOnboardingComplete, isPreview, onClose }: Onboardi
     switch (stepId) {
       case ONBOARDING_STEPS.WELCOME:
         return <WelcomeScreen key={index} width={width} />;
-      case ONBOARDING_STEPS.FEATURES_MENUS:
-        return <MenusFeatureScreen key={index} width={width} />;
-      case ONBOARDING_STEPS.FEATURES_MAP:
-        return <MapFeatureScreen key={index} width={width} />;
-      case ONBOARDING_STEPS.FEATURES_FAVORITES:
-        return <FavoritesFeatureScreen key={index} width={width} />;
-      case ONBOARDING_STEPS.PERMISSIONS:
-        return (
-          <PermissionsScreen key={index} width={width} onPermissionsChange={setPermissionStatus} />
-        );
-      case ONBOARDING_STEPS.COMPLETE:
-        return (
-          <CompleteScreen
-            key={index}
-            width={width}
-            handleComplete={handleComplete}
-            isCurrentScreen={currentStep === index}
-          />
-        );
       default:
         return null;
     }
@@ -203,35 +168,45 @@ const OnboardingScreen = ({ isOnboardingComplete, isPreview, onClose }: Onboardi
       visible={isPreview ? true : !isOnboardingComplete}
     >
       <Container className={cn('mx-0', isDarkMode ? 'bg-neutral-900' : 'bg-white')}>
-        <View className="flex-row items-center px-6">
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={goToPrevious}
-            disabled={currentStep === 0}
-            className={cn('rounded-full', currentStep === 0 ? 'opacity-0' : 'opacity-100')}
-          >
-            <ChevronLeft
-              size={24}
-              color={isDarkMode ? COLORS['um-grey-dark-mode'] : COLORS['um-grey']}
-            />
-          </TouchableOpacity>
-
-          <View className="flex-1 items-center justify-center px-4">
-            <ProgressIndicator
-              step={currentStep}
-              totalSteps={ONBOARDING_SCREENS.length}
-              className="w-[180px]"
-            />
-          </View>
-
-          {isPreview ? (
-            <TouchableOpacity activeOpacity={0.8} onPress={onClose} className="rounded-full">
-              <X size={22} color={isDarkMode ? COLORS['um-grey-dark-mode'] : COLORS['um-grey']} />
+        {ONBOARDING_SCREENS.length > 1 ? (
+          <View className="flex-row items-center px-6">
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={goToPrevious}
+              disabled={currentStep === 0}
+              className={cn('rounded-full', currentStep === 0 ? 'opacity-0' : 'opacity-100')}
+            >
+              <ChevronLeft
+                size={24}
+                color={isDarkMode ? COLORS['um-grey-dark-mode'] : COLORS['um-grey']}
+              />
             </TouchableOpacity>
-          ) : (
-            <View className="w-6" />
-          )}
-        </View>
+
+            <View className="flex-1 items-center justify-center px-4">
+              <ProgressIndicator
+                step={currentStep}
+                totalSteps={ONBOARDING_SCREENS.length}
+                className="w-[180px]"
+              />
+            </View>
+
+            {isPreview ? (
+              <TouchableOpacity activeOpacity={0.8} onPress={onClose} className="rounded-full">
+                <X size={22} color={isDarkMode ? COLORS['um-grey-dark-mode'] : COLORS['um-grey']} />
+              </TouchableOpacity>
+            ) : (
+              <View className="w-6" />
+            )}
+          </View>
+        ) : (
+          isPreview && (
+            <View className="flex-row items-center justify-end px-6">
+              <TouchableOpacity activeOpacity={0.8} onPress={onClose} className="rounded-full">
+                <X size={22} color={isDarkMode ? COLORS['um-grey-dark-mode'] : COLORS['um-grey']} />
+              </TouchableOpacity>
+            </View>
+          )
+        )}
 
         <Animated.ScrollView
           ref={scrollRef}
@@ -254,7 +229,13 @@ const OnboardingScreen = ({ isOnboardingComplete, isPreview, onClose }: Onboardi
               animatedStyle,
               {
                 width: '100%',
-                borderRadius: 14,
+                // Bottom corners echo the device's screen corner radius so the
+                // button nests into the bottom of the screen; the top stays
+                // subtly rounded. (~device content radius minus the px-4 inset.)
+                borderTopLeftRadius: 14,
+                borderTopRightRadius: 14,
+                borderBottomLeftRadius: 40,
+                borderBottomRightRadius: 40,
                 paddingVertical: 16,
                 backgroundColor: getAccent(isDarkMode),
               },

@@ -1,6 +1,8 @@
 import * as Haptics from 'expo-haptics';
+import { router } from 'expo-router';
 import {
   Beef,
+  ChevronLeft,
   Egg,
   Fish,
   Flame,
@@ -106,8 +108,16 @@ export default function LocationFilterModal() {
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: insets.bottom + 60 }}
     >
-      {/* Gradient header */}
-      <View style={{ paddingHorizontal: PADDING, paddingTop: 44, paddingBottom: 28 }}>
+      {/* Header */}
+      <View style={{ paddingHorizontal: PADDING, paddingTop: 24, paddingBottom: 16 }}>
+        <TouchableOpacity
+          onPress={() => { haptic(); router.back(); }}
+          activeOpacity={0.8}
+          style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginBottom: 16 }}
+        >
+          <ChevronLeft size={24} color={getAccent(isDarkMode)} />
+          <Text style={{ fontSize: 16, fontFamily: 'RobotoMono_700Bold', color: getAccent(isDarkMode) }}>BACK</Text>
+        </TouchableOpacity>
         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <View>
             <Text style={{ fontSize: 26, fontWeight: '800', color: isDarkMode ? '#fff' : '#000', letterSpacing: -0.5 }}>Filters</Text>
@@ -160,16 +170,7 @@ export default function LocationFilterModal() {
           </View>
           <Text style={{ fontSize: 13, color: subColor, marginBottom: 14 }}>Show only items matching these</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: GAP }}>
-            {PREFERENCES.map(({ key, label, Icon }, index) => {
-              const total = PREFERENCES.length;
-              const totalRows = Math.ceil(total / ROW_COLS);
-              const row = Math.floor(index / ROW_COLS);
-              const col = index % ROW_COLS;
-              const isLastRow = row === totalRows - 1;
-              const extraStyle = isLastRow ? {
-                borderBottomLeftRadius: col === 0 ? 28 : CARD_RADIUS,
-                borderBottomRightRadius: col === ROW_COLS - 1 ? 28 : CARD_RADIUS,
-              } : undefined;
+            {PREFERENCES.map(({ key, label, Icon }) => {
               return (
                 <Chip
                   key={key}
@@ -179,7 +180,6 @@ export default function LocationFilterModal() {
                   onPress={() => { toggleDietaryFilter(key); haptic(); }}
                   accent={preferenceAccent}
                   accentBorder={preferenceBorder}
-                  extraStyle={extraStyle}
                 />
               );
             })}

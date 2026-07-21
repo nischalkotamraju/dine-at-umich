@@ -23,11 +23,6 @@ interface OnboardingState {
 
 export const ONBOARDING_STEPS = {
   WELCOME: 'welcome',
-  FEATURES_MENUS: 'features_menus',
-  FEATURES_MAP: 'features_map',
-  FEATURES_FAVORITES: 'features_favorites',
-  PERMISSIONS: 'permissions',
-  COMPLETE: 'complete',
 } as const;
 
 export const useOnboardingStore = create<OnboardingState>()(

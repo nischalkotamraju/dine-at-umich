@@ -1,9 +1,6 @@
-import * as Notifications from 'expo-notifications';
 import { Link } from 'expo-router';
 import {
   Bell,
-  BellRing,
-  ChevronRight,
   Code,
   HelpCircle,
   Info,
@@ -12,7 +9,6 @@ import {
   MapPin,
   MessageSquare,
   Shield,
-  Sparkles,
   Star,
 } from 'lucide-react-native';
 import React from 'react';
@@ -20,7 +16,6 @@ import { Linking, ScrollView, Text, TouchableOpacity, View } from 'react-native'
 import { SheetProvider } from 'react-native-actions-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import OnboardingScreen from '~/components/onboarding/OnboardingScreen';
 import { useDatabase } from '~/hooks/useDatabase';
 import { useLocationPermissions } from '~/hooks/useLocationPermissions';
 import { useNotificationPermissions } from '~/hooks/useNotificationPermissions';
@@ -30,7 +25,7 @@ import { useSettingsStore } from '~/store/useSettingsStore';
 import { getAccent } from '~/utils/colors';
 import { useResponsive } from '~/utils/responsive';
 
-const ITUNES_ITEM_ID = '6743042002';
+const ITUNES_ITEM_ID = '6789715778';
 const MONO_BOLD = 'RobotoMono_700Bold';
 const MONO_MEDIUM = 'RobotoMono_500Medium';
 
@@ -260,12 +255,9 @@ const MoreTab = () => {
   const responsive = useResponsive();
   const { scale, verticalScale, isTablet } = responsive;
   const [appInfo, setAppInfo] = React.useState<AppInformation | null>(null);
-  const [showOnboardingPreview, setShowOnboardingPreview] = React.useState(false);
 
-  const { isGranted: notifGranted, isDenied: notifDenied, isUndetermined: notifUndetermined, requestPermissions: requestNotif } =
-    useNotificationPermissions();
-  const { isGranted: locGranted, isDenied: locDenied, isUndetermined: locUndetermined, requestPermissions: requestLoc } =
-    useLocationPermissions();
+  const { isGranted: notifGranted } = useNotificationPermissions();
+  const { isGranted: locGranted } = useLocationPermissions();
 
   React.useEffect(() => {
     const fetchAppInfo = async () => {
@@ -279,103 +271,11 @@ const MoreTab = () => {
   const subColor = isDarkMode ? '#9CA3AF' : '#6B7280';
   const contentMaxWidth = isTablet ? 640 : undefined;
 
-  const handleNotifPress = notifGranted
-    ? undefined
-    : async () => {
-        if (notifUndetermined) await requestNotif();
-        else if (notifDenied) Linking.openSettings();
-      };
-
-  const handleLocPress = locGranted
-    ? undefined
-    : async () => {
-        if (locUndetermined) await requestLoc();
-        else if (locDenied) Linking.openSettings();
-      };
-
-  const handleSendTestNotification = async () => {
-    if (notifUndetermined) {
-      await requestNotif();
-      return;
-    }
-    if (notifDenied) {
-      Linking.openSettings();
-      return;
-    }
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Test Notification',
-        body: 'If you can see this, notifications are working correctly.',
-        data: { category: 'test' },
-      },
-      trigger: null,
-    });
-  };
-
-  // Fires every kind of notification the app sends, back-to-back (with a
-  // short delay so there's time to lock the phone first) purely so a stack
-  // of realistic notifications can be screenshotted for App Store previews.
-  const handlePreviewNotificationStack = async () => {
-    if (notifUndetermined) {
-      await requestNotif();
-      return;
-    }
-    if (notifDenied) {
-      Linking.openSettings();
-      return;
-    }
-    const previewNotifications = [
-      // closingSoonNotifications.ts — "now open" alert
-      {
-        title: '🍽️ South Quad is now open',
-        body: 'Open now — go grab a bite!',
-        category: 'location-opening',
-      },
-      // closingSoonNotifications.ts — "closes soon" alert
-      {
-        title: '⏰ South Quad closes soon',
-        body: 'Closes in 15 minutes.',
-        category: 'location-closing',
-      },
-      // favoriteFoodAlerts.ts — favorited food available today
-      {
-        title: '⭐ Chicken Tenders is available today!',
-        body: 'Find it at Bursley Dining Hall for Lunch.',
-        category: 'favorite-food-appearance',
-      },
-      // manual-push-notification / scheduled-push-notification edge functions
-      // — admin broadcast announcement
-      {
-        title: '📣 Dine @ Michigan',
-        body: "We've added new dining locations — check them out!",
-        category: 'admin-broadcast',
-      },
-    ];
-
-    for (const [index, notification] of previewNotifications.entries()) {
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: notification.title,
-          body: notification.body,
-          data: { category: notification.category },
-        },
-        trigger: {
-          seconds: 3 + index,
-          repeats: false,
-        } as Notifications.TimeIntervalTriggerInput,
-      });
-    }
-  };
+  const handleNotifPress = () => Linking.openSettings();
+  const handleLocPress = () => Linking.openSettings();
 
   return (
     <SheetProvider context="settings">
-      {showOnboardingPreview && (
-        <OnboardingScreen
-          isOnboardingComplete={false}
-          isPreview
-          onClose={() => setShowOnboardingPreview(false)}
-        />
-      )}
       <View style={{ flex: 1, backgroundColor: bg, paddingTop: insets.top }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -423,132 +323,18 @@ const MoreTab = () => {
             />
           </View>
 
-          <TouchableOpacity
-            onPress={handleSendTestNotification}
-            activeOpacity={0.8}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              borderRadius: scale(16),
-              padding: scale(14),
-              backgroundColor: isDarkMode ? '#262626' : '#F9F9F9',
-              borderWidth: 1,
-              borderColor: isDarkMode ? '#333' : '#e5e7eb',
-              marginBottom: verticalScale(10),
-            }}
-          >
-            <View
-              style={{
-                width: scale(34),
-                height: scale(34),
-                borderRadius: scale(10),
-                backgroundColor: getAccent(isDarkMode),
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: scale(12),
-              }}
-            >
-              <BellRing size={scale(17)} color={isDarkMode ? '#000' : '#fff'} strokeWidth={2.2} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: MONO_MEDIUM, fontSize: scale(13), color: textColor }}>
-                Send Test Notification
-              </Text>
-              <Text style={{ fontSize: scale(11.5), color: subColor, marginTop: 2 }}>
-                Check that notifications are working
-              </Text>
-            </View>
-            <ChevronRight size={scale(16)} color={isDarkMode ? '#4B5563' : '#D1D5DB'} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={handlePreviewNotificationStack}
-            activeOpacity={0.8}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              borderRadius: scale(16),
-              padding: scale(14),
-              backgroundColor: isDarkMode ? '#262626' : '#F9F9F9',
-              borderWidth: 1,
-              borderColor: isDarkMode ? '#333' : '#e5e7eb',
-              marginBottom: verticalScale(10),
-            }}
-          >
-            <View
-              style={{
-                width: scale(34),
-                height: scale(34),
-                borderRadius: scale(10),
-                backgroundColor: getAccent(isDarkMode),
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: scale(12),
-              }}
-            >
-              <Bell size={scale(17)} color={isDarkMode ? '#000' : '#fff'} strokeWidth={2.2} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: MONO_MEDIUM, fontSize: scale(13), color: textColor }}>
-                Preview Notification Stack
-              </Text>
-              <Text style={{ fontSize: scale(11.5), color: subColor, marginTop: 2 }}>
-                Sends every notification type after a few seconds
-              </Text>
-            </View>
-            <ChevronRight size={scale(16)} color={isDarkMode ? '#4B5563' : '#D1D5DB'} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => setShowOnboardingPreview(true)}
-            activeOpacity={0.8}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              borderRadius: scale(16),
-              padding: scale(14),
-              backgroundColor: isDarkMode ? '#262626' : '#F9F9F9',
-              borderWidth: 1,
-              borderColor: isDarkMode ? '#333' : '#e5e7eb',
-              marginBottom: verticalScale(10),
-            }}
-          >
-            <View
-              style={{
-                width: scale(34),
-                height: scale(34),
-                borderRadius: scale(10),
-                backgroundColor: getAccent(isDarkMode),
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: scale(12),
-              }}
-            >
-              <Sparkles size={scale(17)} color={isDarkMode ? '#000' : '#fff'} strokeWidth={2.2} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: MONO_MEDIUM, fontSize: scale(13), color: textColor }}>
-                View Onboarding
-              </Text>
-              <Text style={{ fontSize: scale(11.5), color: subColor, marginTop: 2 }}>
-                See the welcome screens again
-              </Text>
-            </View>
-            <ChevronRight size={scale(16)} color={isDarkMode ? '#4B5563' : '#D1D5DB'} />
-          </TouchableOpacity>
-
           <MonoLabel title="Feedback" isDarkMode={isDarkMode} scale={scale} verticalScale={verticalScale} />
           <View style={{ flexDirection: 'row', marginHorizontal: -scale(4) }}>
             <FeedbackButton
               Icon={MessageSquare}
               label="SUGGEST"
-              onPress={() => Linking.openURL('https://michigandining.userjot.com')}
+              onPress={() => Linking.openURL('https://dinemichigan.userjot.com')}
               isDarkMode={isDarkMode}
               scale={scale}
             />
             <FeedbackButton
               Icon={Star}
-              label="RATE US"
+              label="RATE THE APP"
               onPress={() =>
                 Linking.openURL(
                   `itms-apps://itunes.apple.com/app/viewContentsUserReviews/id${ITUNES_ITEM_ID}?action=write-review`,

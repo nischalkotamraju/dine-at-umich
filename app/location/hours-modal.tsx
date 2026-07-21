@@ -1,35 +1,71 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { AlertTriangle, CalendarX, Clock, X } from 'lucide-react-native';
-import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect } from 'react';
+import { ActivityIndicator, Dimensions, Text, TouchableOpacity, View } from 'react-native';
 import { useLocationDetails } from '~/hooks/useLocationDetails';
 import { useSettingsStore } from '~/store/useSettingsStore';
 import { getAccent, getAccentTint } from '~/utils/colors';
 import { generateSchedule } from '~/utils/time';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+
+// Fixed pixel heights used to compute the sheet height directly from the
+// schedule data — deterministic, so it never depends on iOS's flaky
+// `fitToContents` measurement (which rounds up and stretches the measured
+// view, leaving a per-row-count gap). Tune these if a row-count clips or gaps.
+const HEADER_H = 78; // paddingTop 24 + header row (~38) + paddingBottom 16
+const CARD_V_PADDING = 28; // paddingVertical 14 top + bottom
+const TEXT_LINE_H = 16; // one line of 12px RobotoMono day/time text
+const SLOT_GAP = 4; // gap between stacked time slots in a row
+const CARD_GAP = 8; // gap between day cards
+const NON_SCHEDULE_DETENT = 0.28; // loading / error / no-hours states
 
 export default function HoursModal() {
   const { location } = useLocalSearchParams<{ location: string }>();
   const { locationData, loading, error } = useLocationDetails(location);
   const isDarkMode = useSettingsStore((state) => state.isDarkMode);
   const schedule = generateSchedule(locationData, true);
+  const navigation = useNavigation();
 
   const bg = isDarkMode ? '#1C1C1E' : '#F2F2F7';
   const cardBg = isDarkMode ? '#2C2C2E' : '#fff';
   const textColor = isDarkMode ? '#D1D5DB' : '#6B7280';
   const PADDING = 20;
+  // Last card's bottom corners use this larger radius so they blend into the
+  // sheet's own rounded bottom — but only if the card actually reaches the
+  // sheet bottom, so the body has no bottom padding.
   const SHEET_RADIUS = 38;
   const CARD_RADIUS = 14;
+  // Breathing room below the last card. A lone row looks cramped with the
+  // tighter multi-row value, so give single-row schedules a bit more.
+  const bodyBottomPad = schedule.length <= 1 ? 30 : schedule.length >= 4 ? 28 : 8;
 
-  // Sheet is sized to fit its content (sheetAllowedDetents: 'fitToContents'
-  // in app/_layout.tsx), which measures this view's natural laid-out height.
-  // A ScrollView does NOT report a content-based height to that measurement
-  // — it just stretches to fill whatever space its parent gets, which is why
-  // the sheet always looked like a fixed size regardless of row count.
-  // generateSchedule collapses consecutive matching days, so there are at
-  // most 7 rows here — a plain View sizes correctly with no scrolling needed.
+  // Compute the exact sheet height from the schedule data and pin the detent
+  // to it. No view measurement, so every row-count gets exactly bodyBottomPad
+  // of room below the last card — consistent across 1–4 rows.
+  useEffect(() => {
+    let detent = NON_SCHEDULE_DETENT;
+    if (!loading && !error && schedule.length > 0) {
+      let rows = 0;
+      for (const item of schedule) {
+        const lines = Math.max(
+          item.time.split(/,|\n/).map((s) => s.trim()).filter(Boolean).length,
+          1,
+        );
+        rows += CARD_V_PADDING + lines * TEXT_LINE_H + (lines - 1) * SLOT_GAP;
+      }
+      const total =
+        HEADER_H + rows + (schedule.length - 1) * CARD_GAP + bodyBottomPad;
+      detent = Math.min(total / SCREEN_HEIGHT, 0.95);
+    }
+    navigation.setOptions({ sheetAllowedDetents: [detent] });
+  }, [loading, error, schedule, bodyBottomPad, navigation]);
+
   return (
     <View style={{ backgroundColor: bg }}>
+     <View>
       {/* Header */}
-      <View style={{ paddingHorizontal: PADDING, paddingTop: 28, paddingBottom: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      <View style={{ paddingHorizontal: PADDING, paddingTop: 24, paddingBottom: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: getAccentTint(isDarkMode), alignItems: 'center', justifyContent: 'center' }}>
             <Clock size={18} color={getAccent(isDarkMode)} strokeWidth={1.8} />
@@ -52,11 +88,11 @@ export default function HoursModal() {
       </View>
 
       {loading ? (
-        <View style={{ paddingHorizontal: PADDING, paddingBottom: SHEET_RADIUS, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ paddingHorizontal: PADDING, paddingBottom: 24, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator size="small" color={getAccent(isDarkMode)} />
         </View>
       ) : error || schedule.length === 0 ? (
-        <View style={{ paddingHorizontal: PADDING, paddingBottom: SHEET_RADIUS, alignItems: 'center' }}>
+        <View style={{ paddingHorizontal: PADDING, paddingBottom: 24, alignItems: 'center' }}>
           <View
             style={{
               width: 48,
@@ -87,7 +123,7 @@ export default function HoursModal() {
           </Text>
         </View>
       ) : (
-      <View style={{ paddingHorizontal: PADDING, gap: 8 }}>
+      <View style={{ paddingHorizontal: PADDING, paddingBottom: bodyBottomPad, gap: 8 }}>
         {schedule.map((item, index) => {
           const slots = item.time.split(/,|\n/).map((s: string) => s.trim()).filter(Boolean);
           const isLast = index === schedule.length - 1;
@@ -105,7 +141,7 @@ export default function HoursModal() {
               gap: 12,
             }}>
               <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: getAccent(isDarkMode), marginTop: 4 }} />
-              <Text style={{ fontSize: 12, fontFamily: 'RobotoMono_700Bold', color: isDarkMode ? '#fff' : '#000', width: 48 }}>
+              <Text style={{ fontSize: 12, fontFamily: 'RobotoMono_700Bold', color: isDarkMode ? '#fff' : '#000', width: 62 }}>
                 {item.dayRange}
               </Text>
               <View style={{ flex: 1, gap: 4 }}>
@@ -120,6 +156,7 @@ export default function HoursModal() {
         })}
       </View>
       )}
+     </View>
     </View>
   );
 }

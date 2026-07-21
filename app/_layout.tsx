@@ -21,8 +21,8 @@ import { VersionCheckProvider } from '~/components/VersionCheckProvider';
 import { useDatabase } from '~/hooks/useDatabase';
 import { POSTHOG_CONFIG } from '~/services/analytics/posthog';
 import {
-  ClosingSoonNotificationsInitializer,
   PushNotificationsInitializer,
+  WidgetRefreshInitializer,
 } from '~/services/notifications/notifications';
 import { ratingService } from '~/services/rating/rating';
 import { setWidgetColorScheme } from '~/modules/live-activity';
@@ -81,7 +81,11 @@ const AppContent = () => {
   useSyncQueries({ queryClient });
 
   const isTablet = Device.deviceType === Device.DeviceType.TABLET;
-  const sheetBg = isDarkMode ? '#1C1C1E' : '#fff';
+  // Must match the inner `bg` each formSheet modal paints (hours-modal,
+  // home-filter, payment-filter, location-filter) — otherwise the native
+  // sheet container fills the bottom safe area with a mismatched color,
+  // leaving a white strip below the content in light mode.
+  const sheetBg = isDarkMode ? '#1C1C1E' : '#F2F2F7';
 
   // Sync the native color scheme to the app's manual dark mode toggle.
   // Without this, native chrome (like the formSheet drag handle/grabber on
@@ -118,7 +122,7 @@ const AppContent = () => {
             <SheetProvider>
               <VersionCheckProvider>
                 <PushNotificationsInitializer />
-                <ClosingSoonNotificationsInitializer />
+                <WidgetRefreshInitializer />
                 <Stack
                   key={isDarkMode ? 'dark' : 'light'}
                   screenOptions={{

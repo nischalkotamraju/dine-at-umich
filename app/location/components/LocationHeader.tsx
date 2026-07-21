@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { ChevronRight, MapPin } from 'lucide-react-native';
@@ -17,6 +17,7 @@ import { location as location_schema, menu } from '~/services/database/schema';
 import { useSettingsStore } from '~/store/useSettingsStore';
 import { useMealTimes } from '~/utils/locations';
 import { getAccent } from '~/utils/colors';
+import { getTodayInCentralTime } from '~/utils/date';
 import { getCurrentOpenSlot, getNextOpeningInfo, isLocationOpen } from '~/utils/time';
 import DateNavigator from './DateNavigator';
 import SearchBar from './SearchBar';
@@ -66,11 +67,23 @@ const LocationHeader = React.memo(
           return;
         }
 
-        const res = db.select().from(menu).where(eq(menu.location_id, locationDbData.id)).get();
+        // Locations that publish itemized menus (has_menus) are only "open"
+        // if today's menu actually exists — mirrors the home list's logic in
+        // utils/locationStatus.ts. Grab-and-go spots with has_menus=false
+        // (e.g. PharmFresh) skip this check and go by hours alone, so they
+        // no longer get stuck permanently "closed" just because they've
+        // never had a menu row.
+        if (locationDbData.has_menus) {
+          const todayMenu = db
+            .select()
+            .from(menu)
+            .where(and(eq(menu.location_id, locationDbData.id), eq(menu.date, getTodayInCentralTime())))
+            .get();
 
-        if (!res) {
-          setOpen(false);
-          return;
+          if (!todayMenu) {
+            setOpen(false);
+            return;
+          }
         }
 
         setOpen(isLocationOpen(locationData));
@@ -166,11 +179,11 @@ const LocationHeader = React.memo(
 
             {/* Payment methods */}
             {paymentMethods.length > 0 && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 6, columnGap: 10, paddingHorizontal: 20 }}>
                 {paymentMethods.map((method: string) => {
                   if (!isPaymentMethod(method)) return null;
                   return (
-                    <View key={method} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <View key={method} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                       <View
                         style={{
                           width: 18,

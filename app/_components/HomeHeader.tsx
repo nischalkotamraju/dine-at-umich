@@ -67,7 +67,7 @@ const HomeHeader = ({ currentTime, locationTypes }: HomeHeaderProps) => {
       </View>
 
       {/* Filter pills */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'nowrap', gap: 8 }}>
         <TouchableOpacity
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -80,7 +80,8 @@ const HomeHeader = ({ currentTime, locationTypes }: HomeHeaderProps) => {
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            alignSelf: 'flex-start',
+            flexShrink: 1,
+            minWidth: 0,
             gap: 6,
             paddingHorizontal: 14,
             paddingVertical: 8,
@@ -91,7 +92,11 @@ const HomeHeader = ({ currentTime, locationTypes }: HomeHeaderProps) => {
           }}
         >
           <SlidersHorizontal size={13} color={filterActive ? (isDarkMode ? '#000' : '#fff') : isDarkMode ? '#fff' : '#000'} strokeWidth={2} />
-          <Text style={{ fontSize: 12, fontFamily: 'RobotoMono_500Medium', color: filterActive ? (isDarkMode ? '#000' : '#fff') : isDarkMode ? '#fff' : '#000' }}>
+          <Text
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            style={{ flexShrink: 1, fontSize: 12, fontFamily: 'RobotoMono_500Medium', color: filterActive ? (isDarkMode ? '#000' : '#fff') : isDarkMode ? '#fff' : '#000' }}
+          >
             {filterActive ? (activeLabel ?? '').toUpperCase() : 'ALL LOCATIONS'}
           </Text>
           <ChevronDown size={13} color={filterActive ? (isDarkMode ? '#000' : '#fff') : isDarkMode ? '#fff' : '#000'} strokeWidth={2.5} />
@@ -110,7 +115,8 @@ const HomeHeader = ({ currentTime, locationTypes }: HomeHeaderProps) => {
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            alignSelf: 'flex-start',
+            flexShrink: 1,
+            minWidth: 0,
             gap: 6,
             paddingHorizontal: 14,
             paddingVertical: 8,
@@ -121,7 +127,11 @@ const HomeHeader = ({ currentTime, locationTypes }: HomeHeaderProps) => {
           }}
         >
           <CreditCard size={13} color={selectedMethods.length > 0 ? (isDarkMode ? '#000' : '#fff') : isDarkMode ? '#fff' : '#000'} strokeWidth={2} />
-          <Text style={{ fontSize: 12, fontFamily: 'RobotoMono_500Medium', color: selectedMethods.length > 0 ? (isDarkMode ? '#000' : '#fff') : isDarkMode ? '#fff' : '#000' }}>
+          <Text
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            style={{ flexShrink: 1, fontSize: 12, fontFamily: 'RobotoMono_500Medium', color: selectedMethods.length > 0 ? (isDarkMode ? '#000' : '#fff') : isDarkMode ? '#fff' : '#000' }}
+          >
             {selectedMethods.length > 0
               ? selectedMethods.map((m) => PAYMENT_METHOD_LABELS[m]).join(', ').toUpperCase()
               : 'ALL PAYMENT METHODS'}
