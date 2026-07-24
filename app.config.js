@@ -61,6 +61,7 @@ export default {
     assetBundlePatterns: ['**/*'],
     ios: {
       supportsTablet: false,
+      appleTeamId: 'C975P3B767',
       icon: {
         dark: './assets/icons/ios-dark.png',
         light: './assets/icons/ios-light.png',
