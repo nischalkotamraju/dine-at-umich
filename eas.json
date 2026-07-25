@@ -10,6 +10,9 @@
       "channel": "development",
       "env": {
         "APP_VARIANT": "development"
+      },
+      "ios": {
+        "image": "latest"
       }
     },
     "preview": {
