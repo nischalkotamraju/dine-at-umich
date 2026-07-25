@@ -7,7 +7,7 @@ type Props = {
   width: number;
 };
 
-const image = require('~/assets/onboarding/icon.webp');
+const image = require('~/assets/icons/ios-light.png');
 
 const WelcomeScreen = ({ width }: Props) => {
   const isDark = useSettingsStore((state) => state.isDarkMode);
@@ -46,7 +46,7 @@ const WelcomeScreen = ({ width }: Props) => {
 
         <Text
           style={{
-            fontFamily: 'RobotoMono_700Bold',
+            fontWeight: '700',
             fontSize: 34,
             lineHeight: 42,
             color: textColor,
@@ -58,7 +58,6 @@ const WelcomeScreen = ({ width }: Props) => {
 
         <Text
           style={{
-            fontFamily: 'RobotoMono_400Regular',
             fontSize: 14,
             lineHeight: 21,
             color: subColor,

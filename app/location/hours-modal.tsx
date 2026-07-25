@@ -38,7 +38,7 @@ export default function HoursModal() {
   const CARD_RADIUS = 14;
   // Breathing room below the last card. A lone row looks cramped with the
   // tighter multi-row value, so give single-row schedules a bit more.
-  const bodyBottomPad = schedule.length <= 1 ? 30 : schedule.length >= 4 ? 28 : 8;
+  const bodyBottomPad = schedule.length <= 1 ? 8 : schedule.length >= 4 ? 28 : 8;
 
   // Compute the exact sheet height from the schedule data and pin the detent
   // to it. No view measurement, so every row-count gets exactly bodyBottomPad

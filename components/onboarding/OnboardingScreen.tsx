@@ -220,7 +220,7 @@ const OnboardingScreen = ({ isOnboardingComplete, isPreview, onClose }: Onboardi
           {ONBOARDING_SCREENS.map((stepId, index) => renderScreen(stepId, index))}
         </Animated.ScrollView>
 
-        <View className="px-4">
+        <View className="px-4" style={{ marginBottom: -8 }}>
           <AnimatedPressable
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
