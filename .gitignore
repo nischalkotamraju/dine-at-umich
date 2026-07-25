@@ -16,8 +16,10 @@ expo-env.d.ts
 .env
 .dev.vars
 
-ios
-android
+# Root native build dirs only (anchored so they don't swallow
+# modules/*/ios native code for local Expo modules).
+/ios
+/android
 
 # macOS
 .DS_Store
