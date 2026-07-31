@@ -24,6 +24,12 @@ const CLOSING_SOON_MINUTES = 30;
 // tick without missing the "just opened" moment entirely (device_alert_log
 // still prevents any duplicate sends across ticks).
 const OPENING_WINDOW_MINUTES = 10;
+// Favorite-food reminders repeat through the day so a favorited dish that's on
+// today's menu nudges the user more than once. Fire at most once per this many
+// hours, and only during daytime so nobody gets a 3am "it's available" ping.
+const FOOD_REMINDER_HOURS = 3;
+const FOOD_ALERT_START_MINUTES = 8 * 60; // 8:00 Eastern
+const FOOD_ALERT_END_MINUTES = 20 * 60; // 20:00 Eastern
 // Dining hall hours (and the menu `date` column) are always in Eastern Time
 // (Ann Arbor, MI), regardless of where the request originates from.
 const TIMEZONE = 'America/Detroit';
@@ -96,15 +102,21 @@ async function sendPush(pushToken: string, title: string, body: string, data: Re
   });
 }
 
-// Attempts to claim an alert for (device, alertKey) by inserting into the
-// dedup log. Returns true the first time (caller should send the push),
-// false if it was already sent for this device+event (primary key conflict)
-// — this is what keeps the 5-minute cron tick from re-sending the same
-// closing-soon/opening-now/favorite-food alert repeatedly.
-async function tryLogAlert(deviceId: string, alertKey: string): Promise<boolean> {
+// Attempts to claim an alert for (pushToken, alertKey) by inserting into the
+// dedup log. Returns true the first time (caller should send the push), false
+// if it was already sent for this token+event (primary key conflict).
+//
+// Keyed by PUSH TOKEN, not device_id: a single physical device can accumulate
+// several device_id rows (device_id is app-local and regenerates on reinstall,
+// while favorites re-sync each launch), all pointing at the same push token.
+// Deduping on device_id would then deliver the same alert to the phone once
+// per stale row. The push token is the actual delivery target, so it's the
+// correct dedup identity. (The column is still named device_id; it just stores
+// the token here.)
+async function tryLogAlert(pushToken: string, alertKey: string): Promise<boolean> {
   const { error } = await supabase
     .from('device_alert_log')
-    .insert({ device_id: deviceId, alert_key: alertKey });
+    .insert({ device_id: pushToken, alert_key: alertKey });
   if (!error) return true;
   if (error.code === '23505') return false; // unique_violation — already sent
   console.error('❌ Error logging alert:', error);
@@ -154,7 +166,7 @@ Deno.serve(async (_req) => {
           const minutesUntilClose = closeM - nowMinutes;
           if (minutesUntilClose > 0 && minutesUntilClose <= CLOSING_SOON_MINUTES) {
             const alertKey = `closing:${fav.location_name}:${today}:${interval.close}`;
-            if (await tryLogAlert(fav.device_id, alertKey)) {
+            if (await tryLogAlert(pushToken, alertKey)) {
               await sendPush(
                 pushToken,
                 `${fav.location_name} closes soon`,
@@ -168,7 +180,7 @@ Deno.serve(async (_req) => {
           const minutesSinceOpen = nowMinutes - openM;
           if (minutesSinceOpen >= 0 && minutesSinceOpen < OPENING_WINDOW_MINUTES) {
             const alertKey = `opening:${fav.location_name}:${today}:${interval.open}`;
-            if (await tryLogAlert(fav.device_id, alertKey)) {
+            if (await tryLogAlert(pushToken, alertKey)) {
               await sendPush(
                 pushToken,
                 `${fav.location_name} is now open`,
@@ -236,14 +248,23 @@ Deno.serve(async (_req) => {
         if (devError) throw devError;
         const tokenByDevice = new Map((devices ?? []).map((d) => [d.device_id, d.push_token]));
 
+        // Re-remind through the day: one alert per 3-hour window (bucketed on
+        // minutes-since-midnight), and only during daytime hours so a dish
+        // that sits on today's menu nudges the user a few times rather than
+        // once. Outside the window, skip food alerts entirely.
+        const withinFoodHours =
+          nowMinutes >= FOOD_ALERT_START_MINUTES && nowMinutes < FOOD_ALERT_END_MINUTES;
+        const foodBucket = Math.floor(nowMinutes / (FOOD_REMINDER_HOURS * 60));
+
         for (const fav of foodFavorites) {
+          if (!withinFoodHours) continue;
           const info = byFood.get(fav.food_name);
           if (!info) continue;
           const pushToken = tokenByDevice.get(fav.device_id);
           if (!pushToken) continue;
 
-          const alertKey = `food:${today}:${fav.food_name}`;
-          if (!(await tryLogAlert(fav.device_id, alertKey))) continue;
+          const alertKey = `food:${today}:b${foodBucket}:${fav.food_name}`;
+          if (!(await tryLogAlert(pushToken, alertKey))) continue;
 
           const firstLocation = info.locationNames[0];
           const body =
