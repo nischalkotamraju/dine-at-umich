@@ -5,8 +5,11 @@ npm-debug.*
 *.orig.*
 web-build/
 
-ios
-android
+# Anchored to root so these don't also exclude modules/*/ios native code
+# for local Expo modules (EAS uses .easignore instead of .gitignore for the
+# upload, so the same anchoring fix as .gitignore is required here too).
+/ios
+/android
 
 # macOS
 .DS_Store
