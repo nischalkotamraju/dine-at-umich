@@ -1,4 +1,4 @@
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import {
   Bell,
   Code,
@@ -8,6 +8,7 @@ import {
   Mail,
   MapPin,
   MessageSquare,
+  RotateCcw,
   Shield,
   Star,
 } from 'lucide-react-native';
@@ -21,6 +22,7 @@ import { useLocationPermissions } from '~/hooks/useLocationPermissions';
 import { useNotificationPermissions } from '~/hooks/useNotificationPermissions';
 import { getAppInformation } from '~/services/database/database';
 import type { AppInformation } from '~/services/database/schema';
+import { useOnboardingStore } from '~/store/useOnboardingStore';
 import { useSettingsStore } from '~/store/useSettingsStore';
 import { getAccent } from '~/utils/colors';
 import { useResponsive } from '~/utils/responsive';
@@ -250,14 +252,23 @@ const LABEL_TO_ICON: Record<string, LucideIcon> = {
 
 const MoreTab = () => {
   const { isDarkMode, setDarkMode } = useSettingsStore();
+  const resetOnboarding = useOnboardingStore((state) => state.resetOnboarding);
   const db = useDatabase();
   const insets = useSafeAreaInsets();
   const responsive = useResponsive();
   const { scale, verticalScale, isTablet } = responsive;
   const [appInfo, setAppInfo] = React.useState<AppInformation | null>(null);
 
-  const { isGranted: notifGranted } = useNotificationPermissions();
-  const { isGranted: locGranted } = useLocationPermissions();
+  const {
+    isGranted: notifGranted,
+    isUndetermined: notifUndetermined,
+    requestPermissions: requestNotif,
+  } = useNotificationPermissions();
+  const {
+    isGranted: locGranted,
+    isUndetermined: locUndetermined,
+    requestPermissions: requestLoc,
+  } = useLocationPermissions();
 
   React.useEffect(() => {
     const fetchAppInfo = async () => {
@@ -271,8 +282,18 @@ const MoreTab = () => {
   const subColor = isDarkMode ? '#9CA3AF' : '#6B7280';
   const contentMaxWidth = isTablet ? 640 : undefined;
 
-  const handleNotifPress = () => Linking.openSettings();
-  const handleLocPress = () => Linking.openSettings();
+  // If the permission was never requested, iOS shows no toggle in the app's
+  // Settings page yet, so opening Settings looks empty. Fire the native
+  // request prompt in that case; only deep-link to Settings once it's been
+  // asked (and denied), where a toggle now exists.
+  const handleNotifPress = () => {
+    if (notifUndetermined) requestNotif();
+    else Linking.openSettings();
+  };
+  const handleLocPress = () => {
+    if (locUndetermined) requestLoc();
+    else Linking.openSettings();
+  };
 
   return (
     <SheetProvider context="settings">
@@ -450,6 +471,37 @@ const MoreTab = () => {
                     );
                   })}
               </View>
+            </>
+          )}
+
+          {__DEV__ && (
+            <>
+              <MonoLabel title="Developer" isDarkMode={isDarkMode} scale={scale} verticalScale={verticalScale} />
+              <TouchableOpacity
+                onPress={() => {
+                  // The onboarding modal is mounted on the Home tab, so reset
+                  // then jump there for it to actually present.
+                  resetOnboarding();
+                  router.navigate('/');
+                }}
+                activeOpacity={0.8}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: scale(10),
+                  padding: scale(16),
+                  borderRadius: scale(16),
+                  backgroundColor: isDarkMode ? '#262626' : '#F9F9F9',
+                  borderWidth: 1,
+                  borderColor: isDarkMode ? '#333' : '#e5e7eb',
+                  marginBottom: verticalScale(10),
+                }}
+              >
+                <RotateCcw size={scale(17)} color={getAccent(isDarkMode)} strokeWidth={2} />
+                <Text style={{ fontSize: scale(14), fontWeight: '600', color: textColor }}>
+                  Replay onboarding
+                </Text>
+              </TouchableOpacity>
             </>
           )}
 

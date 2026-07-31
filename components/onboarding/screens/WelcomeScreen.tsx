@@ -1,7 +1,9 @@
 import { Image } from 'expo-image';
+import { Clock, Heart, LayoutGrid, MapPin, UtensilsCrossed } from 'lucide-react-native';
+import type { ComponentType } from 'react';
 import { Text, View } from 'react-native';
 import { useSettingsStore } from '~/store/useSettingsStore';
-import { getAccent } from '~/utils/colors';
+import { getAccent, getAccentTint } from '~/utils/colors';
 
 type Props = {
   width: number;
@@ -9,16 +11,25 @@ type Props = {
 
 const image = require('~/assets/icons/ios-light.png');
 
+const FEATURES: { Icon: ComponentType<{ size: number; color: string; strokeWidth: number }>; label: string }[] = [
+  { Icon: UtensilsCrossed, label: 'Daily menus, ingredients & allergens' },
+  { Icon: Clock, label: "Live hours so you know what's open" },
+  { Icon: MapPin, label: 'Find every location on the map' },
+  { Icon: Heart, label: 'Save your favorite halls & dishes' },
+  { Icon: LayoutGrid, label: 'Home screen widgets, updated live' },
+];
+
 const WelcomeScreen = ({ width }: Props) => {
   const isDark = useSettingsStore((state) => state.isDarkMode);
   const textColor = isDark ? '#fff' : '#111';
   const subColor = isDark ? '#9CA3AF' : '#6B7280';
   const accent = getAccent(isDark);
+  const tint = getAccentTint(isDark);
 
   return (
     <View style={{ width, flex: 1, paddingHorizontal: 28 }}>
       <View style={{ flex: 1, justifyContent: 'center' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 28 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
           <View
             style={{
               width: 40,
@@ -52,31 +63,40 @@ const WelcomeScreen = ({ width }: Props) => {
             color: textColor,
           }}
         >
-          Know what's{'\n'}cooking on{'\n'}
-          <Text style={{ color: accent }}>campus.</Text>
+          Know what's <Text style={{ color: accent }}>cooking</Text> on campus.
         </Text>
 
         <Text
           style={{
-            fontSize: 14,
-            lineHeight: 21,
+            fontSize: 15,
+            lineHeight: 22,
             color: subColor,
-            marginTop: 20,
-            maxWidth: 300,
+            marginTop: 16,
+            maxWidth: 320,
           }}
         >
-          Real-time menus, hours, and locations for every dining hall, café, and market on campus.
+          Every dining hall, café, and market on campus, all in one place.
         </Text>
 
-        <View
-          style={{
-            marginTop: 32,
-            height: 4,
-            width: 56,
-            borderRadius: 2,
-            backgroundColor: accent,
-          }}
-        />
+        <View style={{ marginTop: 32, gap: 16 }}>
+          {FEATURES.map(({ Icon, label }) => (
+            <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+              <View
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 10,
+                  backgroundColor: tint,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Icon size={18} color={accent} strokeWidth={2} />
+              </View>
+              <Text style={{ fontSize: 15, color: textColor, flex: 1 }}>{label}</Text>
+            </View>
+          ))}
+        </View>
       </View>
     </View>
   );

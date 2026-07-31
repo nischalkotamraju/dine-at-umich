@@ -250,7 +250,7 @@ const OnboardingScreen = ({ isOnboardingComplete, isPreview, onClose }: Onboardi
                 color: isDarkMode ? '#000' : '#fff',
               }}
             >
-              {(currentStep === ONBOARDING_SCREENS.length - 1 ? 'Finish' : 'Continue').toUpperCase()}
+              {(currentStep === ONBOARDING_SCREENS.length - 1 ? "Let's Eat" : 'Continue').toUpperCase()}
             </Text>
           </AnimatedPressable>
         </View>
