@@ -446,13 +446,16 @@ function toNetNutritionDateStr(entry) {
 // ---------------------------------------------------------------------------
 // Cross-location ingredient propagation
 // ---------------------------------------------------------------------------
-// NetNutrition only lists (and thus enriches) some of the locations a dish is
-// served at, so the identical dish elsewhere keeps a bare nutrition row with
-// no ingredients. Since the same dish name is the same recipe here, copy the
-// ingredient list from an enriched instance to same-name instances on the same
-// date that lack one. INGREDIENTS ONLY — allergen flags are recipe-sensitive
-// and deliberately never propagated (and have no cross-location gap anyway).
-// PATCH-only on the ingredients column, so it never touches calories/allergens.
+// NetNutrition only lists (and thus enriches) some of the locations and dates
+// a dish is served on (cafes in particular are only ever dated "today"), so
+// the identical dish elsewhere/on another day keeps a bare nutrition row with
+// no ingredients. A dish name is the same recipe regardless of location or
+// day, so copy the ingredient list from any enriched instance to same-name
+// instances anywhere in the scrape window that lack one — across BOTH
+// locations and dates, which is what gives future dates their ingredients.
+// INGREDIENTS ONLY — allergen flags are recipe-sensitive and deliberately
+// never propagated. PATCH-only on the ingredients column, so it never touches
+// calories/allergens.
 
 async function fetchDateFoodItems(iso) {
   const select =
@@ -472,42 +475,52 @@ async function fetchDateFoodItems(iso) {
 }
 
 async function propagateIngredients(dates) {
-  let filled = 0;
+  // Pull every food_item across the whole scrape window first, then group by
+  // name globally so a dish enriched on any date/location can fill the same
+  // dish on every other date (future days included) and location.
+  const all = [];
   for (const dateEntry of dates) {
     const rows = await fetchDateFoodItems(dateEntry.iso);
-    const groups = new Map();
-    for (const row of rows) {
-      const key = normalizeName(row.name);
-      if (!key) continue;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(row);
-    }
+    for (const row of rows) row._iso = dateEntry.iso;
+    all.push(...rows);
+  }
 
-    let dayFilled = 0;
-    for (const group of groups.values()) {
-      if (group.length < 2) continue;
-      const donor = group.find((r) => r.nutrition?.ingredients?.trim());
-      if (!donor) continue;
-      const ingredients = donor.nutrition.ingredients;
-      for (const row of group) {
-        if (row.nutrition?.ingredients?.trim()) continue;
-        try {
-          if (row.nutrition_id) {
-            await sbFetch('PATCH', `/nutrition?id=eq.${row.nutrition_id}`, { ingredients });
-          } else {
-            const [created] = await sbFetch('POST', '/nutrition', [{ ingredients }]);
-            await sbFetch('PATCH', `/food_item?id=eq.${row.id}`, { nutrition_id: created.id });
-          }
-          filled++;
-          dayFilled++;
-        } catch (err) {
-          console.log(`  propagate failed for "${row.name}" (${dateEntry.iso}): ${err.message}`);
+  const groups = new Map();
+  for (const row of all) {
+    const key = normalizeName(row.name);
+    if (!key) continue;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  let filled = 0;
+  const perDay = {};
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const donor = group.find((r) => r.nutrition?.ingredients?.trim());
+    if (!donor) continue;
+    const ingredients = donor.nutrition.ingredients;
+    for (const row of group) {
+      if (row.nutrition?.ingredients?.trim()) continue;
+      try {
+        if (row.nutrition_id) {
+          await sbFetch('PATCH', `/nutrition?id=eq.${row.nutrition_id}`, { ingredients });
+        } else {
+          const [created] = await sbFetch('POST', '/nutrition', [{ ingredients }]);
+          await sbFetch('PATCH', `/food_item?id=eq.${row.id}`, { nutrition_id: created.id });
         }
+        filled++;
+        perDay[row._iso] = (perDay[row._iso] ?? 0) + 1;
+      } catch (err) {
+        console.log(`  propagate failed for "${row.name}" (${row._iso}): ${err.message}`);
       }
     }
-    console.log(`  ${dateEntry.iso}: propagated ingredients to ${dayFilled} same-name dishes`);
   }
-  console.log(`Ingredient propagation: filled ${filled} dishes from same-name twins`);
+
+  for (const { iso } of dates) {
+    console.log(`  ${iso}: propagated ingredients to ${perDay[iso] ?? 0} same-name dishes`);
+  }
+  console.log(`Ingredient propagation: filled ${filled} dishes from same-name twins (cross date + location)`);
 }
 
 // ---------------------------------------------------------------------------
