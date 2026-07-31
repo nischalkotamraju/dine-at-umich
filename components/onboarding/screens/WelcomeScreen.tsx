@@ -1,6 +1,5 @@
 import { Image } from 'expo-image';
-import { Clock, Heart, LayoutGrid, MapPin, UtensilsCrossed } from 'lucide-react-native';
-import type { ComponentType } from 'react';
+import { Clock, Heart, LayoutGrid, type LucideIcon, MapPin, UtensilsCrossed } from 'lucide-react-native';
 import { Text, View } from 'react-native';
 import { useSettingsStore } from '~/store/useSettingsStore';
 import { getAccent, getAccentTint } from '~/utils/colors';
@@ -11,7 +10,7 @@ type Props = {
 
 const image = require('~/assets/icons/ios-light.png');
 
-const FEATURES: { Icon: ComponentType<{ size: number; color: string; strokeWidth: number }>; label: string }[] = [
+const FEATURES: { Icon: LucideIcon; label: string }[] = [
   { Icon: UtensilsCrossed, label: 'Daily menus, ingredients & allergens' },
   { Icon: Clock, label: "Live hours so you know what's open" },
   { Icon: MapPin, label: 'Find every location on the map' },

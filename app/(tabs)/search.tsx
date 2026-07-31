@@ -1,14 +1,21 @@
 import { FlashList } from '@shopify/flash-list';
+import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { ChevronRight, Search as SearchIcon, SearchX, X } from 'lucide-react-native';
-import { useEffect, useRef, useState } from 'react';
+import { ChevronRight, Search as SearchIcon, SearchX, SlidersHorizontal, X } from 'lucide-react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ALLERGEN_ICON_MAP, getCategoryIcon } from '~/components/FoodComponent';
+import { useDatabase } from '~/hooks/useDatabase';
+import type { FoodItem } from '~/services/database/database';
+import * as schema from '~/services/database/schema';
+import { useFiltersStore } from '~/store/useFiltersStore';
 import { useSettingsStore } from '~/store/useSettingsStore';
 import { getAccent, getAccentTint } from '~/utils/colors';
 import { getTodayInCentralTime } from '~/utils/date';
+import { filterFoodItems } from '~/utils/filter';
 
 const ALLERGEN_KEYS = [
   'beef', 'egg', 'fish', 'milk', 'oats', 'peanuts', 'pork', 'sesame_seeds',
@@ -98,9 +105,26 @@ const SearchScreen = () => {
   const isDarkMode = useSettingsStore((state) => state.isDarkMode);
   const insets = useSafeAreaInsets();
   const db = useSQLiteContext();
+  const drizzleDb = useDatabase();
+  const { data: favorites } = useLiveQuery(drizzleDb.select().from(schema.favorites));
+  const filters = useFiltersStore((state) => state.filters);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const inputRef = useRef<TextInput>(null);
+
+  const hasFilters =
+    filters.favorites ||
+    Object.values(filters.dietary).some(Boolean) ||
+    Object.values(filters.allergens).some(Boolean);
+
+  // Same allergen/dietary/favorites filtering the location page uses, applied
+  // on top of the text-search results so users can screen out allergens or
+  // require dietary preferences while browsing dishes.
+  const filteredResults = useMemo(
+    () =>
+      filterFoodItems(results as unknown as FoodItem[], filters, favorites ?? []) as unknown as SearchResult[],
+    [results, filters, favorites],
+  );
 
   const BASE_QUERY = `
     SELECT fi.name, l.name as location_name, m.name as menu_name,
@@ -192,37 +216,74 @@ const SearchScreen = () => {
         <Text style={{ fontSize: 28, fontWeight: '800', color: textColor, marginBottom: 12 }}>
           Search
         </Text>
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: barBg,
-            borderRadius: 14,
-            paddingHorizontal: 14,
-            paddingVertical: 14,
-          }}
-        >
-          <SearchIcon size={16} color={subColor} />
-          <TextInput
-            ref={inputRef}
-            style={{ flex: 1, marginLeft: 10, fontSize: 15, color: textColor }}
-            placeholder="Search all menu items..."
-            placeholderTextColor={subColor}
-            value={query}
-            onChangeText={handleSearch}
-            autoCorrect={false}
-            returnKeyType="search"
-          />
-          {query.length > 0 && (
-            <TouchableOpacity onPress={() => handleSearch('')}>
-              <X size={16} color={subColor} />
-            </TouchableOpacity>
-          )}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: barBg,
+              borderRadius: 14,
+              paddingHorizontal: 14,
+              paddingVertical: 14,
+            }}
+          >
+            <SearchIcon size={16} color={subColor} />
+            <TextInput
+              ref={inputRef}
+              style={{ flex: 1, marginLeft: 10, fontSize: 15, color: textColor }}
+              placeholder="Search all menu items..."
+              placeholderTextColor={subColor}
+              value={query}
+              onChangeText={handleSearch}
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            {query.length > 0 && (
+              <TouchableOpacity onPress={() => handleSearch('')}>
+                <X size={16} color={subColor} />
+              </TouchableOpacity>
+            )}
+          </View>
+          <TouchableOpacity
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push('/location-filter');
+            }}
+            activeOpacity={0.8}
+            style={{
+              width: 50,
+              height: 50,
+              borderRadius: 14,
+              backgroundColor: barBg,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <SlidersHorizontal
+              size={18}
+              color={hasFilters ? getAccent(isDarkMode) : subColor}
+              strokeWidth={2}
+            />
+            {hasFilters && (
+              <View
+                style={{
+                  position: 'absolute',
+                  top: 11,
+                  right: 11,
+                  width: 6,
+                  height: 6,
+                  borderRadius: 3,
+                  backgroundColor: getAccent(isDarkMode),
+                }}
+              />
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 
       {/* Results */}
-      {results.length === 0 && query.length >= 2 ? (
+      {filteredResults.length === 0 && query.length >= 2 ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 80, paddingHorizontal: 32 }}>
           <View
             style={{
@@ -249,14 +310,16 @@ const SearchScreen = () => {
             NO RESULTS
           </Text>
           <Text style={{ marginTop: 8, color: subColor, textAlign: 'center' }}>
-            Try a different search term.
+            {hasFilters && results.length > 0
+              ? 'No matches with your current filters.'
+              : 'Try a different search term.'}
           </Text>
         </View>
       ) : (
         <FlashList
           estimatedItemSize={84}
-          data={results}
-          extraData={isDarkMode}
+          data={filteredResults}
+          extraData={[isDarkMode, filters]}
           keyExtractor={(item, i) => `${item.name}-${i}`}
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}
           renderItem={({ item }) => {

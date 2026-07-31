@@ -17,6 +17,7 @@ import { useSettingsStore } from '~/store/useSettingsStore';
 import { COLORS, getAccent } from '~/utils/colors';
 import { cn } from '~/utils/utils';
 import { Container } from '../Container';
+import { ProgressIndicator } from './ProgressIndicator';
 import WelcomeScreen from './screens/WelcomeScreen';
 
 // Permissions are requested natively by the OS when the app actually needs
