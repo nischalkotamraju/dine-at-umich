@@ -588,14 +588,14 @@ struct LargeWidgetView: View {
   private var colorScheme: ColorScheme { resolvedColorScheme(systemScheme) }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      BrandHeader(now: entry.date)
+    if entry.hasAnyFavorites {
+      VStack(alignment: .leading, spacing: 10) {
+        BrandHeader(now: entry.date)
 
-      Text("Favorites")
-        .font(.system(size: 20, weight: .bold))
-        .foregroundStyle(primaryText(colorScheme))
+        Text("Favorites")
+          .font(.system(size: 20, weight: .bold))
+          .foregroundStyle(primaryText(colorScheme))
 
-      if entry.hasAnyFavorites {
         if !entry.locations.isEmpty {
           VStack(alignment: .leading, spacing: 8) {
             SectionLabel(text: "LOCATIONS")
@@ -621,16 +621,13 @@ struct LargeWidgetView: View {
         }
 
         Spacer(minLength: 0)
-      } else {
-        Spacer()
-        Text("Favorite a dining hall or dish to see it here.")
-          .font(AppFont.regular(12))
-          .foregroundStyle(secondaryText(colorScheme))
-        Spacer()
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(16)
+    } else {
+      // Identical empty state to the medium widget.
+      EmptyFavoritesView()
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(16)
   }
 }
 
