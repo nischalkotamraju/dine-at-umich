@@ -444,6 +444,73 @@ function toNetNutritionDateStr(entry) {
 }
 
 // ---------------------------------------------------------------------------
+// Cross-location ingredient propagation
+// ---------------------------------------------------------------------------
+// NetNutrition only lists (and thus enriches) some of the locations a dish is
+// served at, so the identical dish elsewhere keeps a bare nutrition row with
+// no ingredients. Since the same dish name is the same recipe here, copy the
+// ingredient list from an enriched instance to same-name instances on the same
+// date that lack one. INGREDIENTS ONLY — allergen flags are recipe-sensitive
+// and deliberately never propagated (and have no cross-location gap anyway).
+// PATCH-only on the ingredients column, so it never touches calories/allergens.
+
+async function fetchDateFoodItems(iso) {
+  const select =
+    'select=id,name,nutrition_id,nutrition!food_item_nutrition_id_fkey(ingredients),menu_category!inner(menu!inner(date))';
+  const pageSize = 1000;
+  const all = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await sbFetch(
+      'GET',
+      `/food_item?${select}&menu_category.menu.date=eq.${iso}&limit=${pageSize}&offset=${offset}`,
+    );
+    const rows = page ?? [];
+    all.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return all;
+}
+
+async function propagateIngredients(dates) {
+  let filled = 0;
+  for (const dateEntry of dates) {
+    const rows = await fetchDateFoodItems(dateEntry.iso);
+    const groups = new Map();
+    for (const row of rows) {
+      const key = normalizeName(row.name);
+      if (!key) continue;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
+    }
+
+    let dayFilled = 0;
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const donor = group.find((r) => r.nutrition?.ingredients?.trim());
+      if (!donor) continue;
+      const ingredients = donor.nutrition.ingredients;
+      for (const row of group) {
+        if (row.nutrition?.ingredients?.trim()) continue;
+        try {
+          if (row.nutrition_id) {
+            await sbFetch('PATCH', `/nutrition?id=eq.${row.nutrition_id}`, { ingredients });
+          } else {
+            const [created] = await sbFetch('POST', '/nutrition', [{ ingredients }]);
+            await sbFetch('PATCH', `/food_item?id=eq.${row.id}`, { nutrition_id: created.id });
+          }
+          filled++;
+          dayFilled++;
+        } catch (err) {
+          console.log(`  propagate failed for "${row.name}" (${dateEntry.iso}): ${err.message}`);
+        }
+      }
+    }
+    console.log(`  ${dateEntry.iso}: propagated ingredients to ${dayFilled} same-name dishes`);
+  }
+  console.log(`Ingredient propagation: filled ${filled} dishes from same-name twins`);
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -549,6 +616,12 @@ try {
 } finally {
   await browser.close();
 }
+
+// Runs after all NetNutrition enrichment (Supabase-only, no browser needed):
+// spread each enriched dish's ingredients to same-name dishes at other
+// locations that NetNutrition never listed.
+console.log('\n=== Propagating ingredients across same-name dishes ===');
+await propagateIngredients(dateWindow);
 
 console.log(
   `\nDone! Total matched: ${totalStats.matched}, unmatched: ${totalStats.unmatched}, failed: ${totalStats.failed}`,
