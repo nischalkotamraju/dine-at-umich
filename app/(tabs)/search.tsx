@@ -3,13 +3,13 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { ChevronRight, Search as SearchIcon, SearchX, SlidersHorizontal, X } from 'lucide-react-native';
+import { ChevronRight, Heart, Search as SearchIcon, SearchX, SlidersHorizontal, X } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ALLERGEN_ICON_MAP, getCategoryIcon } from '~/components/FoodComponent';
 import { useDatabase } from '~/hooks/useDatabase';
-import type { FoodItem } from '~/services/database/database';
+import { type FoodItem, toggleFavorites } from '~/services/database/database';
 import * as schema from '~/services/database/schema';
 import { useFiltersStore } from '~/store/useFiltersStore';
 import { useSettingsStore } from '~/store/useSettingsStore';
@@ -38,10 +38,14 @@ interface SearchResult {
   protein: string | null;
   carbs: string | null;
   allergens: Record<string, boolean>;
+  nutritionId: number | null;
+  allergensId: number | null;
 }
 
 type RawRow = {
   name: string;
+  nutrition_id: number | null;
+  allergens_id: number | null;
   location_name: string;
   menu_name: string;
   category_title: string;
@@ -94,6 +98,8 @@ function groupRows(rows: RawRow[]): SearchResult[] {
         protein: r.protein,
         carbs: r.total_carbohydrates,
         allergens,
+        nutritionId: r.nutrition_id,
+        allergensId: r.allergens_id,
       });
     }
   }
@@ -126,8 +132,31 @@ const SearchScreen = () => {
     [results, filters, favorites],
   );
 
+  const isFavorite = (name: string) => favorites?.some((f) => f.name === name) ?? false;
+
+  const handleToggleFavorite = (item: SearchResult) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Favorites embed the dish's nutrition/allergens by id; pair the dish with
+    // today's serving when it has one so the saved entry matches the app.
+    const today = getTodayInCentralTime();
+    const entry = item.entries.find((e) => e.date === today) ?? item.entries[0];
+    toggleFavorites(
+      drizzleDb,
+      {
+        name: item.name,
+        link: null,
+        nutrition: item.nutritionId != null ? { id: item.nutritionId } : undefined,
+        allergens: item.allergensId != null ? { id: item.allergensId } : undefined,
+      } as unknown as FoodItem,
+      entry.locationName,
+      entry.menuName,
+      entry.categoryName,
+    );
+  };
+
   const BASE_QUERY = `
-    SELECT fi.name, l.name as location_name, m.name as menu_name,
+    SELECT fi.name, fi.nutrition_id, fi.allergens_id,
+           l.name as location_name, m.name as menu_name,
            mc.title as category_title, m.date as menu_date,
            n.calories, n.protein, n.total_carbohydrates,
            a.beef, a.egg, a.fish, a.milk, a.oats, a.peanuts, a.pork, a.sesame_seeds,
@@ -216,69 +245,61 @@ const SearchScreen = () => {
         <Text style={{ fontSize: 28, fontWeight: '800', color: textColor, marginBottom: 12 }}>
           Search
         </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <View
-            style={{
-              flex: 1,
-              flexDirection: 'row',
-              alignItems: 'center',
-              backgroundColor: barBg,
-              borderRadius: 14,
-              paddingHorizontal: 14,
-              paddingVertical: 14,
-            }}
-          >
-            <SearchIcon size={16} color={subColor} />
-            <TextInput
-              ref={inputRef}
-              style={{ flex: 1, marginLeft: 10, fontSize: 15, color: textColor }}
-              placeholder="Search all menu items..."
-              placeholderTextColor={subColor}
-              value={query}
-              onChangeText={handleSearch}
-              autoCorrect={false}
-              returnKeyType="search"
-            />
-            {query.length > 0 && (
-              <TouchableOpacity onPress={() => handleSearch('')}>
-                <X size={16} color={subColor} />
-              </TouchableOpacity>
-            )}
-          </View>
-          <TouchableOpacity
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push('/location-filter');
-            }}
-            activeOpacity={0.8}
-            style={{
-              width: 50,
-              height: 50,
-              borderRadius: 14,
-              backgroundColor: barBg,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <SlidersHorizontal
-              size={18}
-              color={hasFilters ? getAccent(isDarkMode) : subColor}
-              strokeWidth={2}
-            />
-            {hasFilters && (
-              <View
-                style={{
-                  position: 'absolute',
-                  top: 11,
-                  right: 11,
-                  width: 6,
-                  height: 6,
-                  borderRadius: 3,
-                  backgroundColor: getAccent(isDarkMode),
-                }}
-              />
-            )}
-          </TouchableOpacity>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: barBg,
+            borderRadius: 14,
+            paddingHorizontal: 14,
+            paddingVertical: 14,
+          }}
+        >
+          <SearchIcon size={16} color={subColor} />
+          <TextInput
+            ref={inputRef}
+            style={{ flex: 1, marginLeft: 10, fontSize: 15, color: textColor }}
+            placeholder="Search all menu items..."
+            placeholderTextColor={subColor}
+            value={query}
+            onChangeText={handleSearch}
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+          {query.length > 0 ? (
+            <TouchableOpacity onPress={() => handleSearch('')}>
+              <X size={16} color={subColor} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push('/location-filter');
+              }}
+              style={{ paddingLeft: 4 }}
+            >
+              <View>
+                <SlidersHorizontal
+                  size={17}
+                  color={hasFilters ? getAccent(isDarkMode) : subColor}
+                  strokeWidth={2}
+                />
+                {hasFilters && (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      top: -2,
+                      right: -2,
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: getAccent(isDarkMode),
+                    }}
+                  />
+                )}
+              </View>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -319,7 +340,7 @@ const SearchScreen = () => {
         <FlashList
           estimatedItemSize={84}
           data={filteredResults}
-          extraData={[isDarkMode, filters]}
+          extraData={[isDarkMode, filters, favorites]}
           keyExtractor={(item, i) => `${item.name}-${i}`}
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }}
           renderItem={({ item }) => {
@@ -445,13 +466,27 @@ const SearchScreen = () => {
                   )}
                 </View>
 
-                <ChevronRight size={16} color={isDarkMode ? '#4B5563' : '#D1D5DB'} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <TouchableOpacity
+                    onPress={() => handleToggleFavorite(item)}
+                    hitSlop={8}
+                    style={{ padding: 2 }}
+                  >
+                    <Heart
+                      size={18}
+                      color={isFavorite(item.name) ? getAccent(isDarkMode) : isDarkMode ? '#4B5563' : '#D1D5DB'}
+                      fill={isFavorite(item.name) ? getAccent(isDarkMode) : 'transparent'}
+                      strokeWidth={2}
+                    />
+                  </TouchableOpacity>
+                  <ChevronRight size={16} color={isDarkMode ? '#4B5563' : '#D1D5DB'} />
+                </View>
               </Pressable>
             );
           }}
           ListHeaderComponent={
             <Text style={{ color: subColor, fontSize: 12, marginBottom: 8, marginTop: 4 }}>
-              {results.length} result{results.length !== 1 ? 's' : ''}
+              {filteredResults.length} result{filteredResults.length !== 1 ? 's' : ''}
             </Text>
           }
         />
