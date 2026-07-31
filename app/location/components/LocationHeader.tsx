@@ -179,24 +179,27 @@ const LocationHeader = React.memo(
 
             {/* Payment methods */}
             {paymentMethods.length > 0 && (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 6, columnGap: 10, paddingHorizontal: 20 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 6, columnGap: 7, paddingHorizontal: 20 }}>
                 {paymentMethods.map((method: string) => {
                   if (!isPaymentMethod(method)) return null;
                   return (
-                    <View key={method} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                    <View key={method} style={{ flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 0 }}>
                       <View
                         style={{
-                          width: 18,
-                          height: 18,
-                          borderRadius: 9,
+                          width: 16,
+                          height: 16,
+                          borderRadius: 8,
                           backgroundColor: PAYMENT_METHOD_COLORS[method],
                           alignItems: 'center',
                           justifyContent: 'center',
                         }}
                       >
-                        {getPaymentMethodIcon(method, '#111', 11)}
+                        {getPaymentMethodIcon(method, '#111', 10)}
                       </View>
-                      <Text style={{ fontSize: 11, fontFamily: 'RobotoMono_400Regular', color: isDarkMode ? '#9CA3AF' : '#6B7280' }}>
+                      <Text
+                        numberOfLines={1}
+                        style={{ fontSize: 10, fontFamily: 'RobotoMono_400Regular', color: isDarkMode ? '#9CA3AF' : '#6B7280' }}
+                      >
                         {PAYMENT_METHOD_LABELS[method]}
                       </Text>
                     </View>
