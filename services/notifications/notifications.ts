@@ -93,41 +93,21 @@ export function PushNotificationsInitializer() {
       const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
       setExpoPushToken(token);
 
-      // Sync to Supabase
-      const { data } = await supabase
-        .from('user_devices')
-        .select('push_token')
-        .eq('device_id', deviceId)
-        .single();
+      // Always upsert so the device row is (re)created on every launch. The
+      // previous "select, then insert only if missing" branch made the app
+      // believe it was already synced after the row was removed server-side
+      // (e.g. a devices reset), so it never re-registered without a reinstall.
+      // Upserting the current token every launch is idempotent and self-heals.
+      const { error } = await supabase.from('user_devices').upsert({
+        device_id: deviceId,
+        push_token: token,
+        updated_at: new Date().toISOString(),
+      });
 
-      // If the device is not in the database, insert it
-      if (!data) {
-        const { error } = await supabase.from('user_devices').insert({
-          device_id: deviceId,
-          push_token: token,
-          updated_at: new Date().toISOString(),
-        });
-
-        if (error) {
-          console.error('❌ Error inserting push token:', error);
-        } else {
-          console.log('✅ Push token registered:', token);
-        }
-      } else if (data.push_token !== token) {
-        // If the push token is different, update it
-        const { error } = await supabase.from('user_devices').upsert({
-          device_id: deviceId,
-          push_token: token,
-          updated_at: new Date().toISOString(),
-        });
-
-        if (error) {
-          console.error('❌ Error updating push token:', error);
-        } else {
-          console.log('✅ Push token updated:', token);
-        }
+      if (error) {
+        console.error('❌ Error syncing push token:', error);
       } else {
-        console.log('✅ Push token already synced.');
+        console.log('✅ Push token synced:', token);
       }
     }
 
