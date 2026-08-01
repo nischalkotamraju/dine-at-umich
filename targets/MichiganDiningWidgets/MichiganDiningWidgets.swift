@@ -209,37 +209,22 @@ private extension SimpleEntry {
   var hasAnyFavorites: Bool { !locations.isEmpty || !foods.isEmpty }
 }
 
-// Dining hours are Ann Arbor (Eastern) time, so labels are formatted in that
-// zone regardless of where the device is.
-private let easternTZ = TimeZone(identifier: "America/Detroit") ?? .current
-
-// Absolute clock-time label for a transition instant (Unix seconds), qualified
-// by day: same day -> "AT 8:00 PM", next day -> "TOMORROW AT 7:00 AM", further
-// out -> "MONDAY AT 10:00 AM". `short` trims it for the medium widget's narrow
-// columns: "8:00 PM" / "TMR 7:00 AM" / "MON 10:00 AM". Empty if already passed.
-// `now` is the timeline entry's date so each per-minute entry stays correct.
-private func transitionLabel(_ epoch: Double, from now: Date, short: Bool) -> String {
-  if epoch <= now.timeIntervalSince1970 { return "" }
-  let target = Date(timeIntervalSince1970: epoch)
-
-  let timeFmt = DateFormatter()
-  timeFmt.timeZone = easternTZ
-  timeFmt.dateFormat = "h:mm a"
-  let time = timeFmt.string(from: target)
-
-  var cal = Calendar.current
-  cal.timeZone = easternTZ
-  let dayDiff =
-    cal.dateComponents([.day], from: cal.startOfDay(for: now), to: cal.startOfDay(for: target)).day ?? 0
-
-  if dayDiff <= 0 { return short ? time : "AT \(time)" }
-  if dayDiff == 1 { return short ? "TMR \(time)" : "TOMORROW AT \(time)" }
-
-  let dayFmt = DateFormatter()
-  dayFmt.timeZone = easternTZ
-  dayFmt.dateFormat = short ? "EEE" : "EEEE"
-  let day = dayFmt.string(from: target).uppercased()
-  return short ? "\(day) \(time)" : "\(day) AT \(time)"
+// Uppercase "2 DAYS" / "3 HOURS" / "45 MINUTES" countdown from `now` to an
+// absolute instant (Unix seconds). Empty string if the instant has passed.
+// `now` is the timeline entry's date, not Date(), so each per-minute entry
+// renders the countdown correct for the moment it's displayed.
+private func relativeCountdown(_ epoch: Double, from now: Date) -> String {
+  let minutes = Int((epoch - now.timeIntervalSince1970) / 60)
+  if minutes <= 0 { return "" }
+  if minutes >= 24 * 60 {
+    let days = Int((Double(minutes) / (24 * 60)).rounded())
+    return "\(days) DAY\(days == 1 ? "" : "S")"
+  }
+  if minutes >= 60 {
+    let hours = Int((Double(minutes) / 60).rounded())
+    return "\(hours) HOUR\(hours == 1 ? "" : "S")"
+  }
+  return "\(minutes) MINUTE\(minutes == 1 ? "" : "S")"
 }
 
 // The open/closed state and countdown as of `now`, derived from the stored
@@ -250,7 +235,7 @@ private func transitionLabel(_ epoch: Double, from now: Date, short: Bool) -> St
 // goes empty in that case.
 private struct DerivedStatus {
   let isOpen: Bool
-  let label: String
+  let countdown: String
 }
 
 private func deriveStatus(
@@ -260,12 +245,15 @@ private func deriveStatus(
   short: Bool = false
 ) -> DerivedStatus {
   guard let epoch = transitionEpoch else {
-    return DerivedStatus(isOpen: isOpen, label: "")
+    return DerivedStatus(isOpen: isOpen, countdown: "")
   }
   if now.timeIntervalSince1970 >= epoch {
-    return DerivedStatus(isOpen: !isOpen, label: "")
+    return DerivedStatus(isOpen: !isOpen, countdown: "")
   }
-  return DerivedStatus(isOpen: isOpen, label: transitionLabel(epoch, from: now, short: short))
+  return DerivedStatus(
+    isOpen: isOpen,
+    countdown: short ? shortCountdown(epoch, from: now) : relativeCountdown(epoch, from: now)
+  )
 }
 
 // MARK: - Row views (large widget)
@@ -289,8 +277,8 @@ struct LocationListRow: View {
     )
     let statusColor = status.isOpen ? statusOpen : statusClosed
     let subtitle = status.isOpen
-      ? (status.label.isEmpty ? "OPEN" : "CLOSES \(status.label)")
-      : (status.label.isEmpty ? "CLOSED" : "OPENS \(status.label)")
+      ? (status.countdown.isEmpty ? "OPEN" : "CLOSES IN \(status.countdown)")
+      : (status.countdown.isEmpty ? "CLOSED" : "OPENS IN \(status.countdown)")
 
     HStack(spacing: 10) {
       Badge(color: statusColor, systemName: locationIconName(location.type))
@@ -383,6 +371,16 @@ private struct Badge: View {
   }
 }
 
+// Terse "2h" / "45m" / "3d" countdown for the medium widget's narrow columns,
+// where the large widget's "2 HOURS" spelling doesn't fit.
+private func shortCountdown(_ epoch: Double, from now: Date) -> String {
+  let minutes = Int((epoch - now.timeIntervalSince1970) / 60)
+  if minutes <= 0 { return "" }
+  if minutes >= 24 * 60 { return "\(Int((Double(minutes) / (24 * 60)).rounded()))D" }
+  if minutes >= 60 { return "\(Int((Double(minutes) / 60).rounded()))H" }
+  return "\(minutes)M"
+}
+
 // Narrow-column row used by the medium widget's two lists.
 private struct CompactLocationRow: View {
   let location: FavoriteLocationStatus
@@ -398,8 +396,8 @@ private struct CompactLocationRow: View {
       short: true
     )
     let text = status.isOpen
-      ? (status.label.isEmpty ? "OPEN" : "CLOSES \(status.label)")
-      : (status.label.isEmpty ? "CLOSED" : "OPENS \(status.label)")
+      ? (status.countdown.isEmpty ? "OPEN" : "CLOSES \(status.countdown)")
+      : (status.countdown.isEmpty ? "CLOSED" : "OPENS \(status.countdown)")
 
     HStack(spacing: 6) {
       Badge(
