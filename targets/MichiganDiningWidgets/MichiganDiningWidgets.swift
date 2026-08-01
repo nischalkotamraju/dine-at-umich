@@ -214,7 +214,10 @@ private extension SimpleEntry {
 // `now` is the timeline entry's date, not Date(), so each per-minute entry
 // renders the countdown correct for the moment it's displayed.
 private func relativeCountdown(_ epoch: Double, from now: Date) -> String {
-  let minutes = Int((epoch - now.timeIntervalSince1970) / 60)
+  // Round remaining time UP to whole minutes so it matches the app's
+  // minute-of-day math (e.g. 6:38 -> closes 7:30 reads as 52, not a floored
+  // 51 once seconds have elapsed into the current minute).
+  let minutes = Int(((epoch - now.timeIntervalSince1970) / 60).rounded(.up))
   if minutes <= 0 { return "" }
   if minutes >= 24 * 60 {
     let days = Int((Double(minutes) / (24 * 60)).rounded())
@@ -374,7 +377,10 @@ private struct Badge: View {
 // Terse "2h" / "45m" / "3d" countdown for the medium widget's narrow columns,
 // where the large widget's "2 HOURS" spelling doesn't fit.
 private func shortCountdown(_ epoch: Double, from now: Date) -> String {
-  let minutes = Int((epoch - now.timeIntervalSince1970) / 60)
+  // Round remaining time UP to whole minutes so it matches the app's
+  // minute-of-day math (e.g. 6:38 -> closes 7:30 reads as 52, not a floored
+  // 51 once seconds have elapsed into the current minute).
+  let minutes = Int(((epoch - now.timeIntervalSince1970) / 60).rounded(.up))
   if minutes <= 0 { return "" }
   if minutes >= 24 * 60 { return "\(Int((Double(minutes) / (24 * 60)).rounded()))D" }
   if minutes >= 60 { return "\(Int((Double(minutes) / 60).rounded()))H" }
