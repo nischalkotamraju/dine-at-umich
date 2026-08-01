@@ -128,6 +128,14 @@ Deno.serve(async (_req) => {
     const { dateStr: today, nowMinutes, weekday } = easternNowParts();
     const results = { closing: 0, opening: 0, food: 0 };
 
+    // Diagnostics returned in the response so a manual curl can reveal why a
+    // test alert didn't fire without needing table access (RLS hides these
+    // from the anon key). Harmless to leave on.
+    const { count: devicesRegistered } = await supabase
+      .from('user_devices')
+      .select('*', { count: 'exact', head: true });
+    let foodsOnMenuToday = 0;
+
     // ---- Closing-soon / opening-now alerts for favorited locations ----
     const { data: locationFavorites, error: locFavError } = await supabase
       .from('device_location_favorites')
@@ -239,6 +247,8 @@ Deno.serve(async (_req) => {
         }
       }
 
+      foodsOnMenuToday = byFood.size;
+
       if (byFood.size > 0) {
         const deviceIds = [...new Set(foodFavorites.map((f) => f.device_id))];
         const { data: devices, error: devError } = await supabase
@@ -281,10 +291,25 @@ Deno.serve(async (_req) => {
       }
     }
 
-    return new Response(JSON.stringify({ success: true, ...results }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({
+        success: true,
+        ...results,
+        debug: {
+          today,
+          nowMinutes,
+          weekday,
+          devicesRegistered: devicesRegistered ?? 0,
+          locationFavorites: locationFavorites?.length ?? 0,
+          foodFavorites: foodFavorites?.length ?? 0,
+          foodsOnMenuToday,
+        },
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
   } catch (error) {
     console.error('❌ favorite-alerts-dispatch error:', error);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
