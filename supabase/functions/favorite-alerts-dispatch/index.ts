@@ -31,6 +31,9 @@ const CLOSING_THRESHOLDS = [
 // tick without missing the "just opened" moment entirely (device_alert_log
 // still prevents any duplicate sends across ticks).
 const OPENING_WINDOW_MINUTES = 10;
+// Same tolerance for the "just closed" alert that fires right after a location's
+// closing time, so a favorited spot's final state change is announced too.
+const CLOSED_WINDOW_MINUTES = 10;
 // Favorite-food reminders repeat through the day so a favorited dish that's on
 // today's menu nudges the user more than once. Fire at most once per this many
 // hours, and only during daytime so nobody gets a 3am "it's available" ping.
@@ -205,6 +208,20 @@ Deno.serve(async (_req) => {
                 { category: 'opening-now', redirect_url: `/location/${fav.location_name}` },
               );
               results.opening++;
+            }
+          }
+
+          const minutesSinceClose = nowMinutes - closeM;
+          if (minutesSinceClose >= 0 && minutesSinceClose < CLOSED_WINDOW_MINUTES) {
+            const alertKey = `closed:${fav.location_name}:${today}:${interval.close}`;
+            if (await tryLogAlert(pushToken, alertKey)) {
+              await sendPush(
+                pushToken,
+                `${fav.location_name} is now closed`,
+                `Closed for now.`,
+                { category: 'now-closed', redirect_url: `/location/${fav.location_name}` },
+              );
+              results.closing++;
             }
           }
         }
