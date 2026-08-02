@@ -9,7 +9,32 @@ import {
 } from '~/modules/live-activity';
 import { useWidgetPreferencesStore } from '~/store/useWidgetPreferencesStore';
 import { getTodayInCentralTime } from '~/utils/date';
+import { getDishesServingLocations } from '~/utils/foodAvailability';
 import { getTodaySchedule } from '~/utils/time';
+
+// Open status + next transition for a dish at a location, derived from that
+// dish's MEAL window(s) today (HHMM intervals from getDishesServingLocations),
+// so the widget matches the app: a breakfast dish reads as open only during
+// breakfast, not the hall's whole day. Transition is this window's close when
+// open, or the next window's open when closed (null if none left today).
+function mealIntervalStatus(
+  intervals: { open: number; close: number }[],
+  currentMinutes: number,
+): { isOpen: boolean; transitionEpoch: number | null } {
+  const mins = intervals
+    .map((iv) => ({ open: convertToMinutes(iv.open), close: convertToMinutes(iv.close) }))
+    .sort((a, b) => a.open - b.open);
+  for (const iv of mins) {
+    if (currentMinutes >= iv.open && currentMinutes < iv.close) {
+      return { isOpen: true, transitionEpoch: Math.floor(easternMinutesToday(iv.close).getTime() / 1000) };
+    }
+  }
+  const next = mins.find((iv) => iv.open > currentMinutes);
+  return {
+    isOpen: false,
+    transitionEpoch: next ? Math.floor(easternMinutesToday(next.open).getTime() / 1000) : null,
+  };
+}
 
 function convertToMinutes(time: number): number {
   const hour = Math.floor(time / 100);
@@ -186,63 +211,19 @@ async function computeFavoriteFoodAvailability(
   }
   if (orderedFoodNames.length === 0) return [];
 
-  const today = getTodayInCentralTime();
-  const rows = await db
-    .select({
-      foodName: schema.food_item.name,
-      locationName: schema.location.name,
-    })
-    .from(schema.food_item)
-    .innerJoin(schema.menu_category, eq(schema.food_item.menu_category_id, schema.menu_category.id))
-    .innerJoin(schema.menu, eq(schema.menu_category.menu_id, schema.menu.id))
-    .innerJoin(schema.location, eq(schema.menu.location_id, schema.location.id))
-    .where(and(eq(schema.menu.date, today), inArray(schema.food_item.name, orderedFoodNames)))
-    .execute();
-
-  const foodToLocations = new Map<string, Set<string>>();
-  const servingLocationNames = new Set<string>();
-  for (const row of rows) {
-    if (!row.foodName || !row.locationName) continue;
-    if (!foodToLocations.has(row.foodName)) foodToLocations.set(row.foodName, new Set());
-    foodToLocations.get(row.foodName)?.add(row.locationName);
-    servingLocationNames.add(row.locationName);
-  }
-  if (servingLocationNames.size === 0) return [];
-
-  // Resolve each serving location's current status + next transition once,
-  // then reuse it across every food that location serves. The transition lets
-  // the widget re-derive open/closed at render time instead of trusting this
-  // snapshot.
-  const statusByLocation = new Map<
-    string,
-    { isOpen: boolean; transitionEpoch: number | null }
-  >();
-  const servingLocations = await db
-    .select()
-    .from(schema.location)
-    .where(inArray(schema.location.name, [...servingLocationNames]))
-    .execute();
-  for (const location of servingLocations) {
-    if (!location.name) continue;
-    const { isOpen, transitionMinutes } = computeLocationOpenStatus(location, currentMinutes);
-    const transitionEpoch = isOpen
-      ? transitionMinutes !== null
-        ? Math.floor(easternMinutesToday(transitionMinutes).getTime() / 1000)
-        : null
-      : computeNextOpenEpoch(location, currentMinutes);
-    statusByLocation.set(location.name, { isOpen, transitionEpoch });
-  }
+  // Meal-accurate serving windows (a breakfast dish -> just the breakfast
+  // window), shared with the Saved tab so the widget and app never disagree.
+  const byFood = await getDishesServingLocations(db, orderedFoodNames);
 
   return orderedFoodNames
-    .filter((name) => foodToLocations.has(name))
+    .filter((name) => (byFood[name]?.length ?? 0) > 0)
     .map((name) => ({
       name,
       category: categoryByFood.get(name) ?? null,
-      servingLocations: [...(foodToLocations.get(name) ?? [])].map((locationName) => ({
-        name: locationName,
-        isOpen: statusByLocation.get(locationName)?.isOpen ?? false,
-        transitionEpoch: statusByLocation.get(locationName)?.transitionEpoch ?? null,
-      })),
+      servingLocations: (byFood[name] ?? []).map((loc) => {
+        const { isOpen, transitionEpoch } = mealIntervalStatus(loc.intervals, currentMinutes);
+        return { name: loc.name, isOpen, transitionEpoch };
+      }),
     }))
     // Prioritize dishes available at the most locations today; ties keep the
     // most-recently-favorited order above (stable sort).

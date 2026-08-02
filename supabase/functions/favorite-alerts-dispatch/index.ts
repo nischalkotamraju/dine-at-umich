@@ -34,12 +34,20 @@ const OPENING_WINDOW_MINUTES = 10;
 // Same tolerance for the "just closed" alert that fires right after a location's
 // closing time, so a favorited spot's final state change is announced too.
 const CLOSED_WINDOW_MINUTES = 10;
-// Favorite-food reminders repeat through the day so a favorited dish that's on
-// today's menu nudges the user more than once. Fire at most once per this many
-// hours, and only during daytime so nobody gets a 3am "it's available" ping.
-const FOOD_REMINDER_HOURS = 3;
-const FOOD_ALERT_START_MINUTES = 8 * 60; // 8:00 Eastern
-const FOOD_ALERT_END_MINUTES = 20 * 60; // 20:00 Eastern
+// Favorite-food alerts fire at the START of each meal a dish is served in, so
+// they land when the dish is actually gettable (a breakfast+dinner dish pings
+// around breakfast and again around dinner). Canonical meal starts in Eastern
+// minutes; "menu" is the single café/market menu, given one midday heads-up.
+const MEAL_STARTS: Record<string, number> = {
+  breakfast: 7 * 60,
+  brunch: 10 * 60,
+  lunch: 11 * 60,
+  dinner: 17 * 60,
+  menu: 11 * 60,
+};
+// Fire within this many minutes of a meal's start; a few cron ticks of slack,
+// with device_alert_log keeping it to one send per meal per day.
+const MEAL_START_WINDOW_MINUTES = 20;
 // Dining hall hours (and the menu `date` column) are always in Eastern Time
 // (Ann Arbor, MI), regardless of where the request originates from.
 const TIMEZONE = 'America/Detroit';
@@ -244,13 +252,8 @@ Deno.serve(async (_req) => {
         .in('name', foodNames);
       if (foodError) throw foodError;
 
-      // Group today's matches by food name so a food offered at multiple
-      // dining halls produces one alert listing all of them, matching the
-      // grouping the client used to do in favoriteFoodAlerts.ts.
-      const byFood = new Map<
-        string,
-        { locationNames: string[]; menuName: string; categoryName: string | null }
-      >();
+      // food name -> the meals it's served in today + the locations serving it.
+      const byFood = new Map<string, { meals: Set<string>; locationNames: string[] }>();
 
       for (const item of foodMatches ?? []) {
         const menuCategory = item.menu_category as unknown as {
@@ -261,15 +264,13 @@ Deno.serve(async (_req) => {
         const location = menu?.location;
         if (!item.name || !menu || menu.date !== today || !location?.name || !menu.name) continue;
 
+        const meal = menu.name.toLowerCase();
         const existing = byFood.get(item.name);
         if (existing) {
+          existing.meals.add(meal);
           if (!existing.locationNames.includes(location.name)) existing.locationNames.push(location.name);
         } else {
-          byFood.set(item.name, {
-            locationNames: [location.name],
-            menuName: menu.name,
-            categoryName: menuCategory?.title ?? null,
-          });
+          byFood.set(item.name, { meals: new Set([meal]), locationNames: [location.name] });
         }
       }
 
@@ -284,35 +285,37 @@ Deno.serve(async (_req) => {
         if (devError) throw devError;
         const tokenByDevice = new Map((devices ?? []).map((d) => [d.device_id, d.push_token]));
 
-        // Re-remind through the day: one alert per 3-hour window (bucketed on
-        // minutes-since-midnight), and only during daytime hours so a dish
-        // that sits on today's menu nudges the user a few times rather than
-        // once. Outside the window, skip food alerts entirely.
-        const withinFoodHours =
-          nowMinutes >= FOOD_ALERT_START_MINUTES && nowMinutes < FOOD_ALERT_END_MINUTES;
-        const foodBucket = Math.floor(nowMinutes / (FOOD_REMINDER_HOURS * 60));
-
         for (const fav of foodFavorites) {
-          if (!withinFoodHours) continue;
           const info = byFood.get(fav.food_name);
           if (!info) continue;
           const pushToken = tokenByDevice.get(fav.device_id);
           if (!pushToken) continue;
 
-          const alertKey = `food:${today}:b${foodBucket}:${fav.food_name}`;
-          if (!(await tryLogAlert(pushToken, alertKey))) continue;
+          // Fire once for each of the dish's meals that's starting right now.
+          for (const meal of info.meals) {
+            const start = MEAL_STARTS[meal];
+            if (start === undefined) continue;
+            if (nowMinutes < start || nowMinutes >= start + MEAL_START_WINDOW_MINUTES) continue;
 
-          const firstLocation = info.locationNames[0];
-          const body =
-            info.locationNames.length > 1
-              ? `Find it at ${info.locationNames.join(', ')} for ${info.menuName}.`
-              : `Find it at ${firstLocation} for ${info.menuName}.`;
+            const alertKey = `food:${today}:${meal}:${fav.food_name}`;
+            if (!(await tryLogAlert(pushToken, alertKey))) continue;
 
-          await sendPush(pushToken, `${fav.food_name} is available today!`, body, {
-            category: 'favorite-food-appearance',
-            redirect_url: `/food/${fav.food_name}?location=${firstLocation}&menu=${info.menuName}&category=${info.categoryName ?? ''}`,
-          });
-          results.food++;
+            const where =
+              info.locationNames.length > 1
+                ? info.locationNames.join(', ')
+                : info.locationNames[0];
+            const isMeal = meal !== 'menu';
+            const title = isMeal
+              ? `${fav.food_name} — ${meal.charAt(0).toUpperCase()}${meal.slice(1)}`
+              : `${fav.food_name} is available today`;
+            const body = isMeal ? `Being served now at ${where}.` : `Find it at ${where}.`;
+
+            await sendPush(pushToken, title, body, {
+              category: 'favorite-food-appearance',
+              redirect_url: `/food/${fav.food_name}?location=${info.locationNames[0]}`,
+            });
+            results.food++;
+          }
         }
       }
     }
