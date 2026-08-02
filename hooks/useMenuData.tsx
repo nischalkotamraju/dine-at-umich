@@ -5,8 +5,29 @@ import {
   getLocationMenuNames,
   type Location,
 } from '~/services/database/database';
-import { getTodayInCentralTime } from '~/utils/date';
+import { getCentralTimeDate, getTodayInCentralTime } from '~/utils/date';
 import { useDatabase } from './useDatabase';
+
+// Picks the meal to open on by default. For today, chooses the meal that fits
+// the current time of day (e.g. dinner at 6pm, not breakfast) so navigating to
+// a dining hall lands on what's actually being served; for other dates, or
+// single-menu cafés, it just uses the first menu. Purely time-bucketed so it
+// never depends on the (incomplete) per-location meal_times data.
+function pickDefaultMenu(menuNames: (string | null)[], targetDate: string): string | undefined {
+  const names = menuNames.filter(Boolean) as string[];
+  if (names.length <= 1) return names[0];
+  if (targetDate !== getTodayInCentralTime()) return names[0];
+
+  const now = getCentralTimeDate();
+  const mins = now.getHours() * 60 + now.getMinutes();
+  const find = (meal: string) => names.find((n) => n.toLowerCase() === meal);
+  const last = names[names.length - 1];
+
+  if (mins >= 16 * 60) return find('dinner') ?? last; // late afternoon / evening
+  if (mins >= 11 * 60) return find('lunch') ?? find('brunch') ?? find('dinner') ?? names[0]; // midday
+  if (mins >= 10 * 60) return find('brunch') ?? find('breakfast') ?? names[0]; // late morning (weekend brunch)
+  return find('breakfast') ?? find('brunch') ?? names[0]; // morning
+}
 
 export function useMenuData(location: string, date?: string) {
   const db = useDatabase();
@@ -32,8 +53,8 @@ export function useMenuData(location: string, date?: string) {
     enabled: !!location,
   });
 
-  // Auto-select first menu if none selected
-  const defaultMenu = selectedMenu || menuNames[0];
+  // Auto-select the meal that fits the current time of day if none selected.
+  const defaultMenu = selectedMenu || pickDefaultMenu(menuNames, targetDate);
 
   // Prefetch all menu data for instant switching
   useEffect(() => {
