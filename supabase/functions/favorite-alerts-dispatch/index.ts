@@ -24,8 +24,8 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 // 30..0 minutes before close) so each fires exactly once, on the first
 // 5-minute cron tick that enters its band.
 const CLOSING_THRESHOLDS = [
-  { within: 60, floor: 30, title: 'closes within the hour' },
-  { within: 30, floor: 0, title: 'closes soon' },
+  { within: 60, floor: 30, title: 'closes within the hour', body: 'Closes within the hour.' },
+  { within: 30, floor: 0, title: 'closes soon', body: 'Closes within the half hour.' },
 ];
 // Cron runs every 5 min; a slightly wider window than that tolerates a late
 // tick without missing the "just opened" moment entirely (device_alert_log
@@ -189,7 +189,7 @@ Deno.serve(async (_req) => {
                 await sendPush(
                   pushToken,
                   `${fav.location_name} ${t.title}`,
-                  `Closes in ${minutesUntilClose} minutes.`,
+                  t.body,
                   { category: 'closing-soon', redirect_url: `/location/${fav.location_name}` },
                 );
                 results.closing++;
