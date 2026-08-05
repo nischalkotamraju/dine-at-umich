@@ -178,19 +178,24 @@ export default function HoursModal() {
               {/* Blocks */}
               <View style={{ gap: SLOT_GAP, paddingLeft: 14 }}>
                 {day.status === 'open' ? (
-                  day.blocks.map((block: HoursBlock, i: number) => (
-                    <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-                      <Text style={{ fontSize: 12, fontFamily: 'RobotoMono_500Medium', color: isDarkMode ? '#fff' : '#000' }}>
-                        {block.name}
-                      </Text>
-                      <Text style={{ fontSize: 12, fontFamily: 'RobotoMono_400Regular', color: textColor }}>
-                        {formatHHMM(block.open)} – {formatHHMM(block.close)}
-                      </Text>
-                    </View>
-                  ))
+                  day.blocks.map((block: HoursBlock, i: number) => {
+                    // Café-style single blocks are named "Open" — show that in
+                    // green, matching the app's open/closed status colors.
+                    const isOpenLabel = block.name.toLowerCase() === 'open';
+                    return (
+                      <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                        <Text style={{ fontSize: 12, fontFamily: 'RobotoMono_500Medium', color: isOpenLabel ? '#4ADE80' : isDarkMode ? '#fff' : '#000' }}>
+                          {isOpenLabel ? 'OPEN' : block.name}
+                        </Text>
+                        <Text style={{ fontSize: 12, fontFamily: 'RobotoMono_400Regular', color: textColor }}>
+                          {formatHHMM(block.open)} – {formatHHMM(block.close)}
+                        </Text>
+                      </View>
+                    );
+                  })
                 ) : (
-                  <Text style={{ fontSize: 12, fontFamily: 'RobotoMono_400Regular', color: mutedColor }}>
-                    {day.status === 'closed' ? 'Closed' : 'Hours not posted'}
+                  <Text style={{ fontSize: 12, fontFamily: 'RobotoMono_400Regular', color: day.status === 'closed' ? '#F87171' : mutedColor }}>
+                    {day.status === 'closed' ? 'CLOSED' : 'Hours not posted'}
                   </Text>
                 )}
               </View>
