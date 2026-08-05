@@ -21,6 +21,7 @@ import m0016 from './0016_vitamin_ac.sql';
 import m0017 from './0017_remarkable_living_tribunal.sql';
 import m0018 from './0018_icy_monster_badoon.sql';
 import m0019 from './0019_curly_black_widow.sql';
+import m0020 from './0020_far_cammi.sql';
 
   export default {
     journal,
@@ -44,6 +45,8 @@ m0015,
 m0016,
 m0017,
 m0018,
-m0019
+m0019,
+m0020
     }
   }
+  

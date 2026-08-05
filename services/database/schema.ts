@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 export const notification_types = sqliteTable('notification_type', {
   id: text('id').primaryKey(),
@@ -230,6 +230,23 @@ export interface LocationWithType extends Location {
 }
 export type NotificationType = typeof notification_types.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
+
+// Per-date scraped hours (mirrors the Supabase location_hours table). blocks is
+// [{ name, open, close }] — name is the meal (Breakfast/Lunch/Dinner/Brunch) or
+// "Open" for cafés; open/close are HHMM ints (1630 = 4:30 PM).
+export const location_hours = sqliteTable(
+  'location_hours',
+  {
+    location_id: text('location_id').notNull(),
+    date: text('date').notNull(),
+    is_closed: integer('is_closed', { mode: 'boolean' }).notNull().default(false),
+    blocks: text('blocks', { mode: 'json' }).notNull().default('[]'),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.location_id, t.date] }) }),
+);
+
+export type LocationHours = typeof location_hours.$inferSelect;
+export type HoursBlock = { name: string; open: number; close: number };
 
 type AppInfo = typeof app_information.$inferSelect;
 export interface AppInformation extends AppInfo {

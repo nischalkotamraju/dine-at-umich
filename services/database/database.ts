@@ -139,6 +139,7 @@ const querySupabase = async (date?: string) => {
       appInformationResult,
       notificationResult,
       notificationTypeResult,
+      locationHoursResult,
     ] = await Promise.all([
       supabase.from('location').select('*').then(r => { console.log('✅ location fetched', r.error?.message ?? r.data?.length); return r; }),
       supabase.from('location_type').select('*').then(r => { console.log('✅ location_type fetched', r.error?.message ?? r.data?.length); return r; }),
@@ -146,6 +147,7 @@ const querySupabase = async (date?: string) => {
       supabase.from('app_information').select('*').then(r => { console.log('✅ app_information fetched', r.error?.message ?? r.data?.length); return r; }),
       supabase.from('notifications').select('*').then(r => { console.log('✅ notifications fetched', r.error?.message ?? r.data?.length); return r; }),
       supabase.from('notification_types').select('*').then(r => { console.log('✅ notification_types fetched', r.error?.message ?? r.data?.length); return r; }),
+      supabase.from('location_hours').select('*').gte('date', (() => { const d = new Date(formattedDate); d.setDate(d.getDate() - 2); return d.toISOString().split('T')[0]; })()).lte('date', (() => { const d = new Date(formattedDate); d.setDate(d.getDate() + 2); return d.toISOString().split('T')[0]; })()).then(r => { console.log('✅ location_hours fetched', r.error?.message ?? r.data?.length); return r; }),
     ]);
 
     // Check for errors in base queries
@@ -181,6 +183,9 @@ const querySupabase = async (date?: string) => {
     const appInformationData = appInformationResult.data ?? [];
     const notificationData = notificationResult.data ?? [];
     const notificationTypeData = notificationTypeResult.data ?? [];
+    // Hours are independent of menus (a location can be closed / have no menu
+    // yet still have scraped hours), so they're always carried through.
+    const locationHoursData = locationHoursResult.data ?? [];
 
     // Early return if no menus for today
     if (menuData.length === 0) {
@@ -196,6 +201,7 @@ const querySupabase = async (date?: string) => {
         app_information: appInformationData,
         notifications: notificationData,
         notification_types: notificationTypeData,
+        location_hours: locationHoursData,
       };
     }
 
@@ -224,6 +230,7 @@ const querySupabase = async (date?: string) => {
         nutrition: [],
         allergens: [],
         app_information: appInformationData,
+        location_hours: locationHoursData,
       };
     }
 
@@ -253,6 +260,7 @@ const querySupabase = async (date?: string) => {
         app_information: appInformationData,
         notifications: notificationData,
         notification_types: notificationTypeData,
+        location_hours: locationHoursData,
       };
     }
 
@@ -298,6 +306,7 @@ const querySupabase = async (date?: string) => {
       app_information: appInformationData,
       notifications: notificationData,
       notification_types: notificationTypeData,
+      location_hours: locationHoursData,
     };
   } catch (error) {
     console.error('❌ Unexpected error fetching Supabase data:', error);
@@ -334,6 +343,7 @@ export const insertDataIntoSQLiteDB = async (
         db.delete(schema.app_information).execute(),
         db.delete(schema.notifications).execute(),
         db.delete(schema.notification_types).execute(),
+        db.delete(schema.location_hours).execute(),
       ]);
 
       // Insert data from Supabase in dependency order to respect foreign keys:
@@ -351,6 +361,16 @@ export const insertDataIntoSQLiteDB = async (
       // 2. Insert location (depends on location_type)
       if (data.location.length > 0) {
         await insertInChunks(db, location, data.location as schema.Location[], 45);
+      }
+
+      // 2b. Per-date scraped hours (references location by id).
+      if (data.location_hours && data.location_hours.length > 0) {
+        await insertInChunks(
+          db,
+          schema.location_hours,
+          data.location_hours as schema.LocationHours[],
+          150,
+        );
       }
 
       // 3. Insert menu (depends on location)
