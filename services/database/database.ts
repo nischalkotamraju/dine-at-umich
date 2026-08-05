@@ -147,7 +147,7 @@ const querySupabase = async (date?: string) => {
       supabase.from('app_information').select('*').then(r => { console.log('✅ app_information fetched', r.error?.message ?? r.data?.length); return r; }),
       supabase.from('notifications').select('*').then(r => { console.log('✅ notifications fetched', r.error?.message ?? r.data?.length); return r; }),
       supabase.from('notification_types').select('*').then(r => { console.log('✅ notification_types fetched', r.error?.message ?? r.data?.length); return r; }),
-      supabase.from('location_hours').select('*').gte('date', (() => { const d = new Date(formattedDate); d.setDate(d.getDate() - 2); return d.toISOString().split('T')[0]; })()).lte('date', (() => { const d = new Date(formattedDate); d.setDate(d.getDate() + 2); return d.toISOString().split('T')[0]; })()).then(r => { console.log('✅ location_hours fetched', r.error?.message ?? r.data?.length); return r; }),
+      (supabase as any).from('location_hours').select('*').gte('date', (() => { const d = new Date(formattedDate); d.setDate(d.getDate() - 2); return d.toISOString().split('T')[0]; })()).lte('date', (() => { const d = new Date(formattedDate); d.setDate(d.getDate() + 2); return d.toISOString().split('T')[0]; })()).then((r: any) => { console.log('✅ location_hours fetched', r.error?.message ?? r.data?.length); return r; }),
     ]);
 
     // Check for errors in base queries
@@ -368,7 +368,7 @@ export const insertDataIntoSQLiteDB = async (
         await insertInChunks(
           db,
           schema.location_hours,
-          data.location_hours as schema.LocationHours[],
+          data.location_hours as unknown as schema.LocationHours[],
           150,
         );
       }
