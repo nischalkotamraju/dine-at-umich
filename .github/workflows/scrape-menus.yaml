@@ -2,8 +2,14 @@ name: Scrape Dining Menus
 
 on:
   schedule:
-    # Runs at 1am, 7am, 1pm, 7pm Eastern (UTC-4 in summer)
-    - cron: '0 5,11,17,23 * * *'
+    # Every 2 hours, on the hour. GitHub cron is UTC-only (no timezone support),
+    # so this can't be pinned to Eastern exactly. During EDT (UTC-4, summer) the
+    # 4-hour offset is even, so these land on even Eastern hours — 12am, 2am, …,
+    # 10pm, which is what we want. During EST (UTC-5, winter) they shift to odd
+    # Eastern hours; still every 2 hours, just offset by one. The scraper itself
+    # anchors "today" to America/Detroit, so the scraped data is correct in
+    # either case regardless of when the run fires.
+    - cron: '0 */2 * * *'
   workflow_dispatch:
 
 jobs:
