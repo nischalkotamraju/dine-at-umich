@@ -279,23 +279,90 @@ function parseNutrition(html) {
 // Scrape one location for one date (uses Playwright page)
 // ---------------------------------------------------------------------------
 
-async function scrapeHall(page, hall, date, locationId) {
+async function scrapeHall(page, hall, date, locationId, writeMenus = true) {
   const url = `https://dining.umich.edu/menus-locations/dining-halls/${hall.slug}/?menuDate=${date}`;
-  await scrapeLocation(page, url, parseMenuHtml, date, locationId);
+  await scrapeLocation(page, url, parseMenuHtml, date, locationId, writeMenus);
 }
 
-async function scrapeCafeStyle(page, place, date, locationId) {
+async function scrapeCafeStyle(page, place, date, locationId, writeMenus = true) {
   const url = `${place.baseUrl}?menuDate=${date}`;
-  await scrapeLocation(page, url, parseCafeStyleMenuHtml, date, locationId);
+  await scrapeLocation(page, url, parseCafeStyleMenuHtml, date, locationId, writeMenus);
 }
 
-async function scrapeLocation(page, url, parseFn, date, locationId) {
+// "4:30 pm" -> 1630 (HHMM), matching regular_service_hours' encoding.
+function parseTimeToHHMM(s) {
+  const m = s.replace(/ /g, ' ').match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (/pm/i.test(m[3]) && h !== 12) h += 12;
+  if (/am/i.test(m[3]) && h === 12) h = 0;
+  return h * 100 + min;
+}
+
+// Parses MDining's per-date "Today's Hours" widget (ul.calhours) into
+// { isClosed, blocks: [{ name, open, close }] }. name is the meal for dining
+// halls (Breakfast/Lunch/Dinner/Brunch) or "Open" for cafés/markets. Returns
+// null when the page has no hours widget at all (ambiguous — leave existing
+// data untouched rather than guess).
+function parseHoursBlocks(html) {
+  const ulMatch = html.match(/<ul[^>]*class="[^"]*calhours[^"]*"[^>]*>([\s\S]*?)<\/ul>/i);
+  if (!ulMatch) return null;
+  // Drop the "<!-- OLD output ... -->" comment span each <li> carries, so only
+  // the live <span class="calhours-times"> is matched.
+  const inner = ulMatch[1].replace(/<!--[\s\S]*?-->/g, '');
+  const blocks = [];
+  const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+  let li;
+  while ((li = liRe.exec(inner))) {
+    const chunk = li[1];
+    const titleM = chunk.match(/calhours-title[^>]*>([\s\S]*?)<\/span>/i);
+    const timesM = chunk.match(/calhours-times[^>]*>([\s\S]*?)<\/span>/i);
+    const name = titleM ? stripTags(titleM[1]).replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim() : '';
+    const timeStr = timesM
+      ? stripTags(timesM[1])
+          .replace(/&nbsp;|\u00a0/gi, ' ')
+          .replace(/&#8209;|&#8211;|&#8212;|\u2011|\u2013|\u2014/g, '-')
+          .replace(/\s+/g, ' ')
+          .trim()
+      : '';
+    if (/closed/i.test(name) || /closed/i.test(timeStr)) return { isClosed: true, blocks: [] };
+    const parts = timeStr.split('-');
+    if (parts.length < 2) continue;
+    const open = parseTimeToHHMM(parts[0]);
+    const close = parseTimeToHHMM(parts[1]);
+    if (open === null || close === null) continue;
+    blocks.push({ name: name || 'Open', open, close });
+  }
+  return { isClosed: blocks.length === 0, blocks };
+}
+
+async function upsertHours(html, date, locationId) {
+  const parsed = parseHoursBlocks(html);
+  if (!parsed) return; // no hours widget on the page — leave existing row alone
+  await sbFetch('DELETE', `/location_hours?location_id=eq.${locationId}&date=eq.${date}`);
+  await sbFetch('POST', '/location_hours', [
+    { location_id: locationId, date, is_closed: parsed.isClosed, blocks: parsed.blocks },
+  ]);
+}
+
+async function scrapeLocation(page, url, parseFn, date, locationId, writeMenus = true) {
   await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
   await page.waitForSelector('h3, h4, .no-menu-message, #content', { timeout: 15000 }).catch(() => {});
   const html = await page.content();
 
   if (html.length < 5000 || html.includes('Just a moment') || html.includes('cf-browser-verification')) {
     console.log(`  Bot challenge page (${html.length} bytes)`);
+    return;
+  }
+
+  // Per-date hours are scraped for the whole window (including past days), even
+  // when menus for this date aren't rewritten — hours have no enrichment to
+  // protect, unlike menus.
+  await upsertHours(html, date, locationId);
+
+  if (!writeMenus) {
+    console.log(`  hours only`);
     return;
   }
 
@@ -378,9 +445,13 @@ async function scrapeLocation(page, url, parseFn, date, locationId) {
 // Main
 // ---------------------------------------------------------------------------
 
+// Each entry is { date, writeMenus }. Menus are rewritten only for today..+2
+// (writeMenus:true) to protect past-date enrichment; hours are scraped for the
+// wider -2..+2 window (writeMenus:false for the two past days) so the app's
+// 5-day hours modal has real data for the days around today.
 let dates;
 if (process.argv[2]) {
-  dates = [process.argv[2]];
+  dates = [{ date: process.argv[2], writeMenus: true }];
 } else {
   // Anchor to "today" in Eastern Time (Ann Arbor, MI) rather than the
   // scraper host's UTC date — otherwise a run between ~8pm-midnight Eastern
@@ -393,24 +464,20 @@ if (process.argv[2]) {
   const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
   const base = new Date(Date.UTC(+map.year, +map.month - 1, +map.day, 12));
 
-  // Today forward only — deliberately NOT backwards. scrapeLocationDate()
-  // DELETEs a location+date's menu and re-inserts it from scratch, which also
-  // throws away the ingredients and detailed allergen flags that
-  // scrape-netnutrition.mjs added. That enrichment can only ever be applied to
-  // today and future dates (NetNutrition exposes no past-date view for halls,
-  // and no date navigation at all for cafés), so re-scraping a past date
-  // permanently strips data that can never be rebuilt. Past menus don't change
-  // anyway, so leaving them alone preserves the enrichment they picked up while
-  // they were current.
+  // Menus: today forward only — deliberately NOT backwards, because rewriting a
+  // past-date menu throws away the ingredients/allergen enrichment that
+  // scrape-netnutrition.mjs added and can never be rebuilt for a past date.
+  // Hours: -2..+2, since hours carry no enrichment and the app shows a 5-day
+  // window. Past days are scraped hours-only (writeMenus:false).
   dates = [];
-  for (let offset = 0; offset <= 2; offset++) {
+  for (let offset = -2; offset <= 2; offset++) {
     const d = new Date(base);
     d.setUTCDate(d.getUTCDate() + offset);
-    dates.push(d.toISOString().split('T')[0]);
+    dates.push({ date: d.toISOString().split('T')[0], writeMenus: offset >= 0 });
   }
 }
 
-console.log(`Scraping dates: ${dates.join(', ')}`);
+console.log(`Scraping dates: ${dates.map((d) => `${d.date}${d.writeMenus ? '' : ' (hours only)'}`).join(', ')}`);
 
 const locationMap = await getLocationMap();
 
@@ -426,8 +493,8 @@ const context = await browser.newContext({
 const page = await context.newPage();
 
 try {
-  for (const date of dates) {
-    console.log(`\n=== ${date} ===`);
+  for (const { date, writeMenus } of dates) {
+    console.log(`\n=== ${date}${writeMenus ? '' : ' (hours only)'} ===`);
     for (const hall of DINING_HALLS) {
       const locationId = locationMap[hall.name];
       if (!locationId) {
@@ -436,7 +503,7 @@ try {
       }
       process.stdout.write(`  ${hall.name}... `);
       try {
-        await scrapeHall(page, hall, date, locationId);
+        await scrapeHall(page, hall, date, locationId, writeMenus);
       } catch (err) {
         console.log(`FAILED: ${err.message}`);
       }
@@ -450,7 +517,7 @@ try {
       }
       process.stdout.write(`  ${place.name}... `);
       try {
-        await scrapeCafeStyle(page, place, date, locationId);
+        await scrapeCafeStyle(page, place, date, locationId, writeMenus);
       } catch (err) {
         console.log(`FAILED: ${err.message}`);
       }
