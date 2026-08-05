@@ -81,6 +81,10 @@ export const nutrition = sqliteTable('nutrition', {
   potassium: text('potassium'),
   ingredients: text('ingredients'),
   trans_fat: text('trans_fat'),
+  // True when some/all of this row's values were estimated by AI because
+  // neither U-M Dining nor NetNutrition published them (see scripts/enrich-ai.mjs).
+  // The food detail page shows an "AI-estimated" notice when this is set.
+  ai_estimated: integer('ai_estimated', { mode: 'boolean' }),
 });
 export const allergens = sqliteTable('allergens', {
   id: integer('id').primaryKey(),

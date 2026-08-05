@@ -22,6 +22,7 @@ import m0017 from './0017_remarkable_living_tribunal.sql';
 import m0018 from './0018_icy_monster_badoon.sql';
 import m0019 from './0019_curly_black_widow.sql';
 import m0020 from './0020_far_cammi.sql';
+import m0021 from './0021_ordinary_exiles.sql';
 
   export default {
     journal,
@@ -46,7 +47,8 @@ m0016,
 m0017,
 m0018,
 m0019,
-m0020
+m0020,
+m0021
     }
   }
   

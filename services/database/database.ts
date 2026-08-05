@@ -751,6 +751,7 @@ export const getFoodItem = async (
           iron: schema.nutrition.iron,
           potassium: schema.nutrition.potassium,
           ingredients: schema.nutrition.ingredients,
+          ai_estimated: schema.nutrition.ai_estimated,
         },
       })
       .from(schema.location)

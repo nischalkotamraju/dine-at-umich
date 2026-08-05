@@ -1,6 +1,6 @@
 import { FlashList } from '@shopify/flash-list';
 import { Stack, useLocalSearchParams } from 'expo-router';
-import { UtensilsCrossed } from 'lucide-react-native';
+import { Sparkles, UtensilsCrossed } from 'lucide-react-native';
 import { usePostHog } from 'posthog-react-native';
 import { useEffect } from 'react';
 import { Text, View } from 'react-native';
@@ -59,6 +59,7 @@ const FoodScreen = () => {
   const protein = foodItem?.nutrition?.protein;
   const carbs = foodItem?.nutrition?.total_carbohydrates;
   const fat = foodItem?.nutrition?.total_fat;
+  const aiEstimated = !!foodItem?.nutrition?.ai_estimated;
 
   // The scraper only stores a nutrition row when it could parse calories off
   // the source page (see scripts/scrape-menus.mjs), so nutrition can come
@@ -168,6 +169,31 @@ const FoodScreen = () => {
                         </View>
                       )}
                     </View>
+
+                    {/* AI-estimated notice: shown when neither U-M Dining nor
+                        NetNutrition published data for this dish and the values
+                        below were estimated by AI. */}
+                    {aiEstimated && (
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 8,
+                          backgroundColor: isDarkMode ? 'rgba(250,204,21,0.10)' : 'rgba(202,138,4,0.08)',
+                          borderWidth: 1,
+                          borderColor: isDarkMode ? 'rgba(250,204,21,0.35)' : 'rgba(202,138,4,0.30)',
+                          borderRadius: 12,
+                          paddingHorizontal: 14,
+                          paddingVertical: 10,
+                        }}
+                      >
+                        <Sparkles size={16} color={isDarkMode ? '#FACC15' : '#CA8A04'} strokeWidth={2} />
+                        <Text style={{ flex: 1, fontSize: 12, lineHeight: 16, color: isDarkMode ? '#FDE68A' : '#854D0E' }}>
+                          AI-estimated. U-M Dining and NetNutrition didn't publish nutrition or
+                          ingredient data for this item, so these values are an approximation.
+                        </Text>
+                      </View>
+                    )}
 
                     {hasNutritionData ? (
                       <>

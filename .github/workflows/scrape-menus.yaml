@@ -15,6 +15,10 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    # Job-level so the AI step's `if` can test whether the secret is set (a
+    # step-level env isn't in scope for its own `if`).
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,7 +29,7 @@ jobs:
       - name: Install Playwright and dependencies
         run: |
           mkdir -p /tmp/scraper
-          cp scripts/scrape-menus.mjs scripts/scrape-netnutrition.mjs /tmp/scraper/
+          cp scripts/scrape-menus.mjs scripts/scrape-netnutrition.mjs scripts/enrich-ai.mjs /tmp/scraper/
           cd /tmp/scraper && npm init -y && npm install playwright
           npx --prefix /tmp/scraper playwright install chromium --with-deps
 
@@ -45,3 +49,15 @@ jobs:
           SUPABASE_URL: https://gtkzwyhqxtubgmlvovmn.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node /tmp/scraper/scrape-netnutrition.mjs
+
+      # Runs LAST so it only fills dishes that neither dining.umich.edu nor
+      # NetNutrition published nutrition/ingredients for. Estimates are written
+      # with nutrition.ai_estimated=true and shown with an "AI-estimated" notice
+      # in the app. Skipped automatically if ANTHROPIC_API_KEY isn't configured.
+      - name: Estimate missing nutrition + ingredients with AI
+        if: ${{ env.ANTHROPIC_API_KEY != '' }}
+        env:
+          SUPABASE_URL: https://gtkzwyhqxtubgmlvovmn.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node /tmp/scraper/enrich-ai.mjs

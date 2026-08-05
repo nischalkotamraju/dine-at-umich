@@ -1,0 +1,1 @@
+ALTER TABLE `nutrition` ADD `ai_estimated` integer;
