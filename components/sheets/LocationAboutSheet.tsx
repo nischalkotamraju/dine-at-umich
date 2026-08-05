@@ -11,7 +11,6 @@ import {
 import { useLocationDetails } from '~/hooks/useLocationDetails';
 import { useSettingsStore } from '~/store/useSettingsStore';
 import { getAccent } from '~/utils/colors';
-import { generateSchedule } from '~/utils/time';
 import { cn } from '~/utils/utils';
 
 const LocationAboutSheet = ({ sheetId, payload }: SheetProps<'location-about'>) => {
@@ -20,9 +19,6 @@ const LocationAboutSheet = ({ sheetId, payload }: SheetProps<'location-about'>) 
   const { locationData, loading, error } = useLocationDetails(locationName || '');
   const displayName = locationName || '';
   const isDarkMode = useSettingsStore((state) => state.isDarkMode);
-
-  // Generate schedule from database data
-  const schedule = generateSchedule(locationData, false);
 
   // Get payment methods from database data - ensure it's an array
   const paymentMethods = Array.isArray(locationData?.methods_of_payment)
@@ -151,34 +147,6 @@ const LocationAboutSheet = ({ sheetId, payload }: SheetProps<'location-about'>) 
           <Text className={cn('text-base', isDarkMode ? 'text-gray-300' : 'text-gray-700')}>
             {locationData?.description}
           </Text>
-
-          <View
-            className={cn(
-              'flex-col gap-y-3 rounded-xl p-4',
-              isDarkMode ? 'bg-ut-grey-dark-mode/10' : 'bg-neutral-50',
-            )}
-          >
-            <Text
-              className={cn('font-semibold text-2xl', isDarkMode ? 'text-white ' : 'text-black')}
-            >
-              Regular Service Hours
-            </Text>
-            {schedule.map((schedule) => (
-              <View
-                key={`${schedule.dayRange}${schedule.time}`}
-                className="flex-row items-start justify-between"
-              >
-                <Text className={cn('font-medium', isDarkMode ? 'text-white' : 'text-black')}>
-                  {schedule.dayRange}:
-                </Text>
-                <Text
-                  className={cn('leading-loose', isDarkMode ? 'text-gray-300' : 'text-ut-grey')}
-                >
-                  {schedule.time.includes(',') ? schedule.time.replace(/, /g, '\n') : schedule.time}
-                </Text>
-              </View>
-            ))}
-          </View>
 
           <View className="flex-col gap-y-3">
             <Text
