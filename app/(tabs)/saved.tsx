@@ -25,7 +25,8 @@ import { getAccent, getAccentTint } from '~/utils/colors';
 import { getTodayInCentralTime } from '~/utils/date';
 import { getDetailedLocationStatus } from '~/utils/locationStatus';
 import { fetchMenuData } from '~/utils/queries';
-import { getLocationTimeMessage, getNextOpeningInfo } from '~/utils/time';
+import { getDayHoursSync } from '~/utils/hours';
+import { nextOpeningInfoFromHours, timeMessageFromHours } from '~/utils/time';
 
 type LocationFavoriteCardProps = {
   item: LocationWithType;
@@ -39,6 +40,7 @@ type LocationFavoriteCardProps = {
 // unfavorite instead of the chevron affordance.
 const LocationFavoriteCard = ({ item, currentTime, db }: LocationFavoriteCardProps) => {
   const [status, setStatus] = useState<'open' | 'opening_soon' | 'closed'>('closed');
+  const [timeText, setTimeText] = useState('Closed');
   const isDarkMode = useSettingsStore((s) => s.isDarkMode);
   const { locationData } = useLocationDetails(item.name ?? '');
   const displayName = item.name ?? '';
@@ -47,21 +49,29 @@ const LocationFavoriteCard = ({ item, currentTime, db }: LocationFavoriteCardPro
     const todayDate = getTodayInCentralTime();
     const s = getDetailedLocationStatus(item, locationData, db, currentTime, todayDate);
     setStatus(s);
+
+    if (locationData?.force_close) {
+      setTimeText('Closed');
+      return;
+    }
+    const window = [0, 1, 2].map((offset) => {
+      const d = new Date(`${todayDate}T12:00:00`);
+      d.setDate(d.getDate() + offset);
+      return getDayHoursSync(db, item.id, d.toISOString().split('T')[0]);
+    });
+    if (s === 'open') {
+      setTimeText(timeMessageFromHours(window[0], currentTime).replace('Open for ', 'Closes in '));
+    } else {
+      const nextOpening = nextOpeningInfoFromHours(window, currentTime);
+      setTimeText(nextOpening ? nextOpening.label : 'Closed');
+    }
   }, [locationData, currentTime, db, item]);
 
   const isOpen = status === 'open';
   const nameColor = isDarkMode ? '#fff' : '#000';
   const subColor = isDarkMode ? '#9CA3AF' : '#6B7280';
 
-  const getTimeText = () => {
-    if (locationData?.force_close) return 'Closed';
-    if (isOpen) {
-      const msg = getLocationTimeMessage(locationData, currentTime);
-      return msg.replace('Open for ', 'Closes in ');
-    }
-    const nextOpening = getNextOpeningInfo(locationData, currentTime);
-    return nextOpening ? nextOpening.label : 'Closed';
-  };
+  const getTimeText = () => timeText;
 
   const paymentMethods = (
     Array.isArray(item.methods_of_payment) ? item.methods_of_payment : []

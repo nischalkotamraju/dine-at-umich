@@ -3,7 +3,8 @@ import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import type * as schema from '~/services/database/schema';
 import { type Location, type LocationWithType, menu } from '~/services/database/schema';
 import { getTodayInCentralTime } from '~/utils/date';
-import { getLocationTimeMessage, isLocationOpen } from '~/utils/time';
+import { getDayHoursSync } from '~/utils/hours';
+import { isOpenFromHours, timeMessageFromHours } from '~/utils/time';
 
 export function getLocationOpenStatus(
   location: LocationWithType,
@@ -27,8 +28,10 @@ export function getLocationOpenStatus(
     }
   }
 
-  // Check if location is open based on time
-  return isLocationOpen(locationData, currentTime);
+  // Check if location is open based on the scraped per-date hours.
+  if (locationData?.force_close) return false;
+  const dayHours = getDayHoursSync(db, location.id, dateToCheck);
+  return isOpenFromHours(dayHours, false, currentTime);
 }
 
 export type LocationStatus = 'open' | 'opening_soon' | 'closed';
@@ -51,7 +54,9 @@ export function getDetailedLocationStatus(
   if (isOpen) return 'open';
 
   // Check schedule only (ignoring menu data) to detect "opening soon"
-  const msg = getLocationTimeMessage(locationData, currentTime);
+  const dateToCheck = targetDate || getTodayInCentralTime();
+  const dayHours = getDayHoursSync(db, location.id, dateToCheck);
+  const msg = timeMessageFromHours(dayHours, currentTime);
   if (msg.startsWith('Opens in')) return 'opening_soon';
 
   return 'closed';

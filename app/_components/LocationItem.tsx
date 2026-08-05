@@ -11,8 +11,9 @@ import { useLocationDetails } from '~/hooks/useLocationDetails';
 import type { LocationWithType } from '~/services/database/schema';
 import { useSettingsStore } from '~/store/useSettingsStore';
 import { getTodayInCentralTime } from '~/utils/date';
+import { getDayHoursSync } from '~/utils/hours';
 import { getDetailedLocationStatus } from '~/utils/locationStatus';
-import { getLocationTimeMessage, getNextOpeningInfo } from '~/utils/time';
+import { nextOpeningInfoFromHours, timeMessageFromHours } from '~/utils/time';
 
 type LocationItemProps = {
   location: LocationWithType;
@@ -49,6 +50,7 @@ export const getLocationIconColor = (type: string | null): string => {
 
 const LocationItem = ({ location, currentTime }: LocationItemProps) => {
   const [status, setStatus] = useState<'open' | 'opening_soon' | 'closed'>('closed');
+  const [timeText, setTimeText] = useState('Closed');
   const scale = useSharedValue(1);
   const db = useDatabase();
   const { isDarkMode } = useSettingsStore();
@@ -59,6 +61,25 @@ const LocationItem = ({ location, currentTime }: LocationItemProps) => {
     const todayDate = getTodayInCentralTime();
     const s = getDetailedLocationStatus(location, locationData, db, currentTime, todayDate);
     setStatus(s);
+
+    // Time text from scraped per-date hours: "Closes in …" when open, else the
+    // next opening across today..+2. force_close is an admin override, not a
+    // schedule gap, so it just shows "Closed".
+    if (locationData?.force_close) {
+      setTimeText('Closed');
+      return;
+    }
+    const window = [0, 1, 2].map((offset) => {
+      const d = new Date(`${todayDate}T12:00:00`);
+      d.setDate(d.getDate() + offset);
+      return getDayHoursSync(db, location.id, d.toISOString().split('T')[0]);
+    });
+    if (s === 'open') {
+      setTimeText(timeMessageFromHours(window[0], currentTime).replace('Open for ', 'Closes in '));
+    } else {
+      const nextOpening = nextOpeningInfoFromHours(window, currentTime);
+      setTimeText(nextOpening ? nextOpening.label : 'Closed');
+    }
   }, [locationData, currentTime, db, location]);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -85,20 +106,7 @@ const LocationItem = ({ location, currentTime }: LocationItemProps) => {
   const nameColor = isDarkMode ? '#fff' : '#000';
   const subColor = isDarkMode ? '#9CA3AF' : '#6B7280';
 
-  const getTimeText = () => {
-    // force_close is an admin override, not a schedule gap — the location
-    // won't necessarily reopen at its next regular hours slot, so don't show
-    // a next-opening time that could be wrong. Every other closed location
-    // should always surface when it opens next (today or a future day), not
-    // just a bare "Closed".
-    if (locationData?.force_close) return 'Closed';
-    if (isOpen) {
-      const msg = getLocationTimeMessage(locationData, currentTime);
-      return msg.replace('Open for ', 'Closes in ');
-    }
-    const nextOpening = getNextOpeningInfo(locationData, currentTime);
-    return nextOpening ? nextOpening.label : 'Closed';
-  };
+  const getTimeText = () => timeText;
 
   const paymentMethods = (
     Array.isArray(location.methods_of_payment) ? location.methods_of_payment : []

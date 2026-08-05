@@ -2,16 +2,13 @@ import { toZonedTime } from 'date-fns-tz';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { ExpoSQLiteDatabase } from 'drizzle-orm/expo-sqlite';
 import * as schema from '~/services/database/schema';
+import type { HoursBlock } from '~/services/database/schema';
 import { getTodayInCentralTime } from '~/utils/date';
 
 // Dining hall hours are always Eastern (Ann Arbor), regardless of device tz.
 const TIMEZONE = 'America/Detroit';
-// getDay(): 0 = Sunday … 6 = Saturday.
-const DAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
 type TimeRange = { open: number; close: number };
-type DaySchedule = { isClosed?: boolean; timeRanges?: TimeRange[] };
-type ServiceHours = Record<string, DaySchedule | undefined>;
 
 // A location that serves a given dish today, with the location's open
 // intervals for today (empty if it's closed today / force-closed).
@@ -35,10 +32,6 @@ function nowEasternMinutes(): number {
   return e.getHours() * 60 + e.getMinutes();
 }
 
-function easternWeekdayKey(): string {
-  return DAY_KEYS[toZonedTime(new Date(), TIMEZONE).getDay()];
-}
-
 function hhmmToMinutes(t: number): number {
   return Math.floor(t / 100) * 60 + (t % 100);
 }
@@ -52,50 +45,26 @@ export function formatHHMM(t: number): string {
   return `${hour}:${minute.toString().padStart(2, '0')} ${ampm}`;
 }
 
-function intervalsForToday(
-  hours: ServiceHours | null,
+// Today's scraped serving blocks for a location, or [] if force-closed / no
+// scraped row / recorded closed. Blocks carry their meal name (Breakfast, etc.)
+// or "Open" for cafés.
+function blocksForToday(
+  blocks: unknown,
+  isClosed: boolean | null,
   forceClose: boolean,
-  weekday: string,
-): TimeRange[] {
-  if (forceClose || !hours) return [];
-  const day = hours[weekday];
-  if (!day || day.isClosed || !Array.isArray(day.timeRanges)) return [];
-  return day.timeRanges;
-}
-
-// Canonical meal ordering, used to line the day's meals up chronologically
-// with the day's open windows.
-const MEAL_ORDER: Record<string, number> = {
-  breakfast: 0,
-  brunch: 1,
-  lunch: 2,
-  dinner: 3,
-  'late night': 4,
-};
-
-// Pairs a meal-based location's meals-served-today with its open windows to get
-// meal -> window (e.g. breakfast -> 7-9, lunch -> 11-2, dinner -> 5-8). Returns
-// null for single-menu cafés (their one menu isn't a real meal) or when the
-// counts don't line up, so callers fall back to the whole open hours.
-function mealWindowMap(meals: string[], intervals: TimeRange[]): Map<string, TimeRange> | null {
-  const orderedMeals = meals
-    .map((m) => m.toLowerCase())
-    .filter((m) => m in MEAL_ORDER)
-    .sort((a, b) => MEAL_ORDER[a] - MEAL_ORDER[b]);
-  if (orderedMeals.length === 0 || orderedMeals.length !== intervals.length) return null;
-  const windows = [...intervals].sort((a, b) => a.open - b.open);
-  const map = new Map<string, TimeRange>();
-  orderedMeals.forEach((meal, i) => map.set(meal, windows[i]));
-  return map;
+): HoursBlock[] {
+  if (forceClose || isClosed || !Array.isArray(blocks)) return [];
+  return blocks as HoursBlock[];
 }
 
 /**
  * Every location serving `foodNames` today, grouped by food name. For a
- * dining hall (meal-based), a dish's intervals are narrowed to just the
- * window(s) of the meal it's actually served in — so a breakfast dish only
- * reads as available 7-9am, not through lunch and dinner. Single-menu cafés
- * keep their whole open hours. Batched so the Saved tab resolves every
- * favorite in one query.
+ * meal-based dining hall, a dish's intervals are narrowed to just the scraped
+ * window(s) of the meal it's actually served in — matched by meal name against
+ * the scraped hours blocks — so a breakfast dish only reads as available 7-9am,
+ * not through lunch and dinner. Single-menu cafés (blocks named "Open") keep
+ * their whole open hours. Batched so the Saved tab resolves every favorite in
+ * one query.
  */
 export async function getDishesServingLocations(
   db: ExpoSQLiteDatabase<typeof schema>,
@@ -103,44 +72,44 @@ export async function getDishesServingLocations(
 ): Promise<Record<string, DishServingLocation[]>> {
   if (foodNames.length === 0) return {};
   const today = getTodayInCentralTime();
-  const weekday = easternWeekdayKey();
 
   const rows = await db
     .select({
       foodName: schema.food_item.name,
       locationName: schema.location.name,
       mealName: schema.menu.name,
-      hours: schema.location.regular_service_hours,
       forceClose: schema.location.force_close,
+      blocks: schema.location_hours.blocks,
+      isClosed: schema.location_hours.is_closed,
     })
     .from(schema.food_item)
     .innerJoin(schema.menu_category, eq(schema.food_item.menu_category_id, schema.menu_category.id))
     .innerJoin(schema.menu, eq(schema.menu_category.menu_id, schema.menu.id))
     .innerJoin(schema.location, eq(schema.menu.location_id, schema.location.id))
+    .leftJoin(
+      schema.location_hours,
+      and(
+        eq(schema.location_hours.location_id, schema.location.id),
+        eq(schema.location_hours.date, today),
+      ),
+    )
     .where(and(eq(schema.menu.date, today), inArray(schema.food_item.name, foodNames)))
     .execute();
 
-  // Per location: its open windows today, and every meal it serves today (used
-  // to build the meal -> window map once per location).
-  const locIntervals = new Map<string, TimeRange[]>();
-  const locMeals = new Map<string, Set<string>>();
+  // Per location: today's serving blocks, all as intervals, plus a meal-name ->
+  // window map for narrowing a dish to just its meal.
+  const locBlocks = new Map<string, HoursBlock[]>();
   for (const row of rows) {
-    if (!row.locationName) continue;
-    if (!locIntervals.has(row.locationName)) {
-      locIntervals.set(
-        row.locationName,
-        intervalsForToday(row.hours as ServiceHours | null, row.forceClose, weekday),
-      );
-    }
-    if (row.mealName) {
-      (locMeals.get(row.locationName) ?? locMeals.set(row.locationName, new Set()).get(row.locationName)!).add(
-        row.mealName.toLowerCase(),
-      );
-    }
+    if (!row.locationName || locBlocks.has(row.locationName)) continue;
+    locBlocks.set(row.locationName, blocksForToday(row.blocks, row.isClosed, row.forceClose));
   }
-  const locMealMap = new Map<string, Map<string, TimeRange> | null>();
-  for (const [loc, meals] of locMeals) {
-    locMealMap.set(loc, mealWindowMap([...meals], locIntervals.get(loc) ?? []));
+  const locAllIntervals = new Map<string, TimeRange[]>();
+  const locMealMap = new Map<string, Map<string, TimeRange>>();
+  for (const [loc, blocks] of locBlocks) {
+    locAllIntervals.set(loc, blocks.map((b) => ({ open: b.open, close: b.close })));
+    const mealMap = new Map<string, TimeRange>();
+    for (const b of blocks) mealMap.set(b.name.toLowerCase(), { open: b.open, close: b.close });
+    locMealMap.set(loc, mealMap);
   }
 
   // Per (food, location): the meals this dish is served in today.
@@ -159,20 +128,19 @@ export async function getDishesServingLocations(
     if (added.has(k)) continue;
     added.add(k);
 
-    const allIntervals = locIntervals.get(row.locationName) ?? [];
+    const allIntervals = locAllIntervals.get(row.locationName) ?? [];
     const mealMap = locMealMap.get(row.locationName);
-    let intervals: TimeRange[];
+    // Narrow to the scraped window(s) of the meal(s) the dish is served in;
+    // fall back to the whole open hours when no meal name matches (café /
+    // single-menu location whose block is just "Open").
+    const uniq = new Map<string, TimeRange>();
     if (mealMap) {
-      // Narrow to the window(s) of the meal(s) the dish is served in.
-      const uniq = new Map<string, TimeRange>();
       for (const meal of dishMeals.get(k) ?? []) {
         const w = mealMap.get(meal);
         if (w) uniq.set(`${w.open}-${w.close}`, w);
       }
-      intervals = uniq.size > 0 ? [...uniq.values()] : allIntervals;
-    } else {
-      intervals = allIntervals; // café / unmappable -> whole open hours
     }
+    const intervals = uniq.size > 0 ? [...uniq.values()] : allIntervals;
     (result[row.foodName] ??= []).push({ name: row.locationName, intervals });
   }
   return result;

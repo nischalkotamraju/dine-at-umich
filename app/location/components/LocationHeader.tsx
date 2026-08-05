@@ -18,7 +18,8 @@ import { useSettingsStore } from '~/store/useSettingsStore';
 import { useMealTimes } from '~/utils/locations';
 import { getAccent } from '~/utils/colors';
 import { getTodayInCentralTime } from '~/utils/date';
-import { getCurrentOpenSlot, getNextOpeningInfo, isLocationOpen } from '~/utils/time';
+import { getDayHoursSync } from '~/utils/hours';
+import { currentOpenSlotFromHours, isOpenFromHours, nextOpeningInfoFromHours } from '~/utils/time';
 import DateNavigator from './DateNavigator';
 import SearchBar from './SearchBar';
 
@@ -45,6 +46,8 @@ const LocationHeader = React.memo(
     onDateChange,
   }: LocationHeaderProps) => {
     const [open, setOpen] = useState(false);
+    const [currentSlot, setCurrentSlot] = useState<string | null>(null);
+    const [nextOpeningInfo, setNextOpeningInfo] = useState<{ label: string } | null>(null);
     const [isSearchFocused, setIsSearchFocused] = useState(false);
     const db = useDatabase();
     const { locationData } = useLocationDetails(location);
@@ -55,44 +58,52 @@ const LocationHeader = React.memo(
     const isDarkMode = useSettingsStore((state) => state.isDarkMode);
 
     useEffect(() => {
-      const checkOpen = async () => {
-        const locationDbData = db
+      const locationDbData = db
+        .select()
+        .from(location_schema)
+        .where(eq(location_schema.name, location))
+        .get();
+
+      if (!locationDbData) {
+        setOpen(false);
+        setCurrentSlot(null);
+        setNextOpeningInfo(null);
+        return;
+      }
+
+      const today = getTodayInCentralTime();
+      // Scraped hours for today..+2 — today drives open/closed and the current
+      // slot; the window feeds the next-opening label when closed.
+      const window = [0, 1, 2].map((offset) => {
+        const d = new Date(`${today}T12:00:00`);
+        d.setDate(d.getDate() + offset);
+        return getDayHoursSync(db, locationDbData.id, d.toISOString().split('T')[0]);
+      });
+      const todayHours = window[0];
+
+      // Locations that publish itemized menus (has_menus) are only "open"
+      // if today's menu actually exists — mirrors the home list's logic in
+      // utils/locationStatus.ts. Grab-and-go spots with has_menus=false
+      // (e.g. PharmFresh) skip this check and go by hours alone, so they
+      // no longer get stuck permanently "closed" just because they've
+      // never had a menu row.
+      let menuMissing = false;
+      if (locationDbData.has_menus) {
+        const todayMenu = db
           .select()
-          .from(location_schema)
-          .where(eq(location_schema.name, location))
+          .from(menu)
+          .where(and(eq(menu.location_id, locationDbData.id), eq(menu.date, today)))
           .get();
+        menuMissing = !todayMenu;
+      }
 
-        if (!locationDbData) {
-          setOpen(false);
-          return;
-        }
-
-        // Locations that publish itemized menus (has_menus) are only "open"
-        // if today's menu actually exists — mirrors the home list's logic in
-        // utils/locationStatus.ts. Grab-and-go spots with has_menus=false
-        // (e.g. PharmFresh) skip this check and go by hours alone, so they
-        // no longer get stuck permanently "closed" just because they've
-        // never had a menu row.
-        if (locationDbData.has_menus) {
-          const todayMenu = db
-            .select()
-            .from(menu)
-            .where(and(eq(menu.location_id, locationDbData.id), eq(menu.date, getTodayInCentralTime())))
-            .get();
-
-          if (!todayMenu) {
-            setOpen(false);
-            return;
-          }
-        }
-
-        setOpen(isLocationOpen(locationData));
-      };
-
-      checkOpen();
-    }, [location, locationData, db.select]);
-
-    const nextOpeningInfo = !open ? getNextOpeningInfo(locationData) : null;
+      const isOpen = !menuMissing && isOpenFromHours(todayHours, locationData?.force_close ?? false);
+      setOpen(isOpen);
+      setCurrentSlot(isOpen ? currentOpenSlotFromHours(todayHours) : null);
+      setNextOpeningInfo(
+        isOpen || locationData?.force_close ? null : nextOpeningInfoFromHours(window),
+      );
+    }, [location, locationData, db]);
 
     const paymentMethods = Array.isArray(locationData?.methods_of_payment)
       ? locationData.methods_of_payment
@@ -126,7 +137,7 @@ const LocationHeader = React.memo(
               <Text style={{ fontSize: 13, fontFamily: 'RobotoMono_700Bold', color: open ? '#4ADE80' : '#F87171' }}>
                 {open ? 'OPEN' : 'CLOSED'}
               </Text>
-              {open && getCurrentOpenSlot(locationData) && (
+              {open && currentSlot && (
                 <>
                   <Text style={{ color: isDarkMode ? '#4B5563' : '#9CA3AF', fontSize: 13 }}>|</Text>
                   <TouchableOpacity
@@ -137,7 +148,7 @@ const LocationHeader = React.memo(
                     }}
                   >
                     <Text style={{ fontSize: 12, fontFamily: 'RobotoMono_400Regular', color: isDarkMode ? '#9CA3AF' : '#6B7280' }}>
-                      {getCurrentOpenSlot(locationData)}
+                      {currentSlot}
                     </Text>
                     <ChevronRight size={12} color={isDarkMode ? '#9CA3AF' : '#6B7280'} strokeWidth={2} />
                   </TouchableOpacity>

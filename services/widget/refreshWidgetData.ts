@@ -10,7 +10,7 @@ import {
 import { useWidgetPreferencesStore } from '~/store/useWidgetPreferencesStore';
 import { getTodayInCentralTime } from '~/utils/date';
 import { getDishesServingLocations } from '~/utils/foodAvailability';
-import { getTodaySchedule } from '~/utils/time';
+import { getDayHoursSync, type DayHours } from '~/utils/hours';
 
 // Open status + next transition for a dish at a location, derived from that
 // dish's MEAL window(s) today (HHMM intervals from getDishesServingLocations),
@@ -97,66 +97,69 @@ function computeLocationTransition(
   return { isOpen: false, transitionMinutes: null };
 }
 
-// Resolves a full location row to its current open/closed status and next
-// transition, folding in the force_close override and the "no schedule today"
-// case. Shared by the favorite-locations status list and the favorite-food
-// availability lookup so both agree on whether a location is open right now.
+// Today..+2 scraped hours for a location, read synchronously. The widget can
+// only look two days ahead — that's the scraped window — but a favorite closed
+// for longer than that is rare.
+function locationHoursWindow(
+  db: ExpoSQLiteDatabase<typeof schema>,
+  locationId: string,
+): DayHours[] {
+  const today = getTodayInCentralTime();
+  return [0, 1, 2].map((offset) => {
+    const d = new Date(`${today}T12:00:00`);
+    d.setDate(d.getDate() + offset);
+    return getDayHoursSync(db, locationId, d.toISOString().split('T')[0]);
+  });
+}
+
+// A scraped day's serving blocks as HHMM open/close intervals (empty unless the
+// day is 'open').
+function dayIntervals(day: DayHours): { openTime: number; closeTime: number }[] {
+  return day.status === 'open'
+    ? day.blocks.map((b) => ({ openTime: b.open, closeTime: b.close }))
+    : [];
+}
+
+// Resolves a location's current open/closed status and next transition from
+// today's scraped hours, folding in the force_close override. Shared by the
+// favorite-locations status list and the favorite-food availability lookup so
+// both agree on whether a location is open right now.
 function computeLocationOpenStatus(
   location: schema.Location,
+  todayHours: DayHours,
   currentMinutes: number,
 ): { isOpen: boolean; transitionMinutes: number | null } {
   if (location.force_close) return { isOpen: false, transitionMinutes: null };
-  const schedule = getTodaySchedule(location);
-  if (!schedule) return { isOpen: false, transitionMinutes: null };
-  return computeLocationTransition(schedule.intervals, currentMinutes);
+  return computeLocationTransition(dayIntervals(todayHours), currentMinutes);
 }
 
-const DAY_ORDER = [
-  'monday',
-  'tuesday',
-  'wednesday',
-  'thursday',
-  'friday',
-  'saturday',
-  'sunday',
-] as const;
-
-type WidgetDaySchedule = { isClosed?: boolean; timeRanges?: { open: number }[] } | undefined;
-
 // Unix seconds of a location's next opening — later today if there's still an
-// interval to come, otherwise the earliest opening on the next open day (up to
-// a week out). Mirrors getNextOpeningInfo in utils/time.ts, but returns the
-// instant so the widget can show "OPENS IN …" for a closed favorite instead of
-// a bare "CLOSED".
+// interval to come, otherwise the earliest opening on a future scraped day
+// (within the today..+2 window). Returns the instant so the widget can show
+// "OPENS IN …" for a closed favorite instead of a bare "CLOSED".
 function computeNextOpenEpoch(
   location: schema.Location,
+  window: DayHours[],
   currentMinutes: number,
 ): number | null {
   if (location.force_close) return null;
-  const hours = location.regular_service_hours as Record<string, WidgetDaySchedule> | null;
-  if (!hours) return null;
-
-  const nowEastern = toZonedTime(new Date(), 'America/Detroit');
-  const todayIdx = (nowEastern.getDay() + 6) % 7; // getDay(): 0=Sun → Monday-first index
 
   // Still opening later today?
-  const todayHours = hours[DAY_ORDER[todayIdx]];
-  if (todayHours && !todayHours.isClosed && todayHours.timeRanges?.length) {
-    const nextOpenToday = todayHours.timeRanges
-      .map((r) => convertToMinutes(r.open))
-      .filter((m) => m > currentMinutes)
-      .sort((a, b) => a - b)[0];
-    if (nextOpenToday !== undefined) {
-      return Math.floor(easternMinutesToday(nextOpenToday).getTime() / 1000);
-    }
+  const nextOpenToday = dayIntervals(window[0])
+    .map((i) => convertToMinutes(i.openTime))
+    .filter((m) => m > currentMinutes)
+    .sort((a, b) => a - b)[0];
+  if (nextOpenToday !== undefined) {
+    return Math.floor(easternMinutesToday(nextOpenToday).getTime() / 1000);
   }
 
-  // Otherwise the earliest opening on the next open day.
-  for (let offset = 1; offset <= 7; offset++) {
-    const day = hours[DAY_ORDER[(todayIdx + offset) % 7]];
-    if (day && !day.isClosed && day.timeRanges?.length) {
+  // Otherwise the earliest opening on the next scraped open day.
+  const nowEastern = toZonedTime(new Date(), 'America/Detroit');
+  for (let offset = 1; offset < window.length; offset++) {
+    const intervals = dayIntervals(window[offset]);
+    if (intervals.length) {
       const earliestOpen = convertToMinutes(
-        [...day.timeRanges].sort((a, b) => a.open - b.open)[0].open,
+        [...intervals].sort((a, b) => a.openTime - b.openTime)[0].openTime,
       );
       const target = new Date(
         nowEastern.getFullYear(),
@@ -281,7 +284,8 @@ export async function refreshFavoriteLocationsWidgetData(db: ExpoSQLiteDatabase<
   for (const location of locations) {
     if (!location.name) continue;
 
-    const { isOpen, transitionMinutes } = computeLocationOpenStatus(location, currentMinutes);
+    const window = locationHoursWindow(db, location.id);
+    const { isOpen, transitionMinutes } = computeLocationOpenStatus(location, window[0], currentMinutes);
     // Sent as Unix seconds so the widget can render a live "CLOSES IN / OPENS
     // IN" countdown. Open → next close today; closed → next opening (later
     // today or a future day, so a closed favorite shows "OPENS IN …").
@@ -289,7 +293,7 @@ export async function refreshFavoriteLocationsWidgetData(db: ExpoSQLiteDatabase<
       ? transitionMinutes !== null
         ? Math.floor(easternMinutesToday(transitionMinutes).getTime() / 1000)
         : null
-      : computeNextOpenEpoch(location, currentMinutes);
+      : computeNextOpenEpoch(location, window, currentMinutes);
 
     widgetStatuses.push({
       name: location.name,
