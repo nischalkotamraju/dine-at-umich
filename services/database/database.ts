@@ -383,16 +383,27 @@ export const insertDataIntoSQLiteDB = async (
         await insertInChunks(db, menu_category, data.menu_category as schema.MenuCategory[], 200);
       }
 
-      // 5. Insert nutrition and allergens in parallel (no dependencies)
-      const leafInserts = [];
-      if (data.nutrition.length > 0) {
-        leafInserts.push(insertInChunks(db, nutrition, data.nutrition as schema.Nutrition[], 60));
-      }
-      if (data.allergens.length > 0) {
-        leafInserts.push(insertInChunks(db, allergens, data.allergens as schema.Allergens[], 60));
-      }
-      if (leafInserts.length > 0) {
-        await Promise.all(leafInserts);
+      // 5. Insert nutrition and allergens in parallel (no dependencies).
+      // These are enrichment, not core data, and FK enforcement is off, so a
+      // failure here must NOT abort the whole sync — otherwise food_item (step
+      // 6) never inserts and the menus + search tab go blank. This most notably
+      // guards the window where a new nutrition column (e.g. ai_estimated) has
+      // shipped in the data but the local migration adding it hasn't applied
+      // yet: catch, log, and keep going so dishes still load (just without
+      // nutrition until the next clean sync).
+      try {
+        const leafInserts = [];
+        if (data.nutrition.length > 0) {
+          leafInserts.push(insertInChunks(db, nutrition, data.nutrition as schema.Nutrition[], 60));
+        }
+        if (data.allergens.length > 0) {
+          leafInserts.push(insertInChunks(db, allergens, data.allergens as schema.Allergens[], 60));
+        }
+        if (leafInserts.length > 0) {
+          await Promise.all(leafInserts);
+        }
+      } catch (err) {
+        console.error('⚠️ nutrition/allergens insert failed; continuing so food_item still loads', err);
       }
 
       // 6. Insert food_item (depends on menu_category, nutrition, allergens)
