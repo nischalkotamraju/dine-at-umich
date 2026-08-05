@@ -108,12 +108,21 @@ export function useFoodData(
   const nutritionData = useMemo(() => {
     if (!foodItem?.nutrition) return [];
 
+    // ai_estimated is an internal flag (surfaced as the "AI-estimated" notice
+    // at the top of the page), not a nutrition value — never list it as a row.
     return Object.entries(foodItem.nutrition)
+      .filter(
+        ([key, value]) =>
+          key !== 'ingredients' &&
+          key !== 'id' &&
+          key !== 'ai_estimated' &&
+          value !== null &&
+          value !== undefined,
+      )
       .map(([key, value]) => ({
         key: formatNutritionKey(key),
         value,
       }))
-      .filter(({ key, value }) => key !== 'Ingredients' && key !== 'Id' && value !== null && value !== undefined)
       .sort((a, b) => {
         const ai = NUTRITION_ORDER.indexOf(a.key);
         const bi = NUTRITION_ORDER.indexOf(b.key);
