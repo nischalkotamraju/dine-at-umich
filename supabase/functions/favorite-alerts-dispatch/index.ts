@@ -56,12 +56,6 @@ interface TimeRange {
   open: number;
   close: number;
 }
-interface DaySchedule {
-  isClosed?: boolean;
-  timeRanges?: TimeRange[];
-}
-type ServiceHours = Record<string, DaySchedule | undefined>;
-
 // Returns today's date (as stored in menu.date), the current
 // minutes-since-midnight, and the current weekday name — all normalized to
 // Eastern Time via Intl rather than pulling in a date-fns-tz dependency.
@@ -97,14 +91,6 @@ function convertToMinutes(time: number): number {
   const hour = Math.floor(time / 100);
   const minute = time % 100;
   return hour * 60 + minute;
-}
-
-function getTodayIntervals(regularServiceHours: unknown, weekday: string): TimeRange[] {
-  if (!regularServiceHours || typeof regularServiceHours !== 'object') return [];
-  const serviceHours = regularServiceHours as ServiceHours;
-  const daySchedule = serviceHours[weekday];
-  if (!daySchedule || daySchedule.isClosed || !Array.isArray(daySchedule.timeRanges)) return [];
-  return daySchedule.timeRanges;
 }
 
 async function sendPush(pushToken: string, title: string, body: string, data: Record<string, unknown>) {
@@ -164,10 +150,30 @@ Deno.serve(async (_req) => {
       const locationNames = [...new Set(locationFavorites.map((f) => f.location_name))];
       const { data: locations, error: locError } = await supabase
         .from('location')
-        .select('name, regular_service_hours, force_close')
+        .select('id, name, force_close')
         .in('name', locationNames);
       if (locError) throw locError;
       const locationByName = new Map((locations ?? []).map((l) => [l.name, l]));
+
+      // Today's scraped serving windows per location (no fallback to stale
+      // weekly hours). Keyed by location name for the loop below.
+      const locationIds = (locations ?? []).map((l) => l.id);
+      const intervalsByName = new Map<string, TimeRange[]>();
+      if (locationIds.length > 0) {
+        const { data: hoursRows, error: hoursError } = await supabase
+          .from('location_hours')
+          .select('location_id, is_closed, blocks')
+          .in('location_id', locationIds)
+          .eq('date', today);
+        if (hoursError) throw hoursError;
+        const idToName = new Map((locations ?? []).map((l) => [l.id, l.name]));
+        for (const row of hoursRows ?? []) {
+          const name = idToName.get(row.location_id);
+          if (!name) continue;
+          const blocks = row.is_closed || !Array.isArray(row.blocks) ? [] : (row.blocks as TimeRange[]);
+          intervalsByName.set(name, blocks.map((b) => ({ open: b.open, close: b.close })));
+        }
+      }
 
       const deviceIds = [...new Set(locationFavorites.map((f) => f.device_id))];
       const { data: devices, error: devError } = await supabase
@@ -184,7 +190,7 @@ Deno.serve(async (_req) => {
         const pushToken = tokenByDevice.get(fav.device_id);
         if (!pushToken) continue;
 
-        const intervals = getTodayIntervals(location.regular_service_hours, weekday);
+        const intervals = intervalsByName.get(fav.location_name) ?? [];
         for (const interval of intervals) {
           const openM = convertToMinutes(interval.open);
           const closeM = convertToMinutes(interval.close);
